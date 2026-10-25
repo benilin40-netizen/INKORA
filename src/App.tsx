@@ -213,6 +213,7 @@ export default function App() {
         <CoverStudio
           stories={stories}
           initialStoryId={activeStoryId || undefined}
+          currentUser={user}
           onBack={() => setCurrentPage('mystories')}
           onSaveCover={handleSaveCover}
         />

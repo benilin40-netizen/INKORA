@@ -1,9 +1,13 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { 
-  ArrowLeft, Download, Save, Undo, RotateCcw, Image as ImageIcon, 
-  Upload, Check, AlertCircle, Sparkles, Eye, Palette, Type, Sliders, Layout, Layers
+  ArrowLeft, Download, Save, Undo, Redo, RotateCcw, Image as ImageIcon, 
+  Upload, Check, AlertCircle, Sparkles, Eye, Palette, Type, Sliders, 
+  Layout, Layers, Move, Copy, Trash2, Lock, Unlock, ZoomIn, ZoomOut, 
+  Maximize, Grid, BookOpen, ChevronRight, ChevronDown, AlignLeft, 
+  AlignCenter, AlignRight, Plus, Square, Circle, Minus, Maximize2, 
+  ExternalLink, Frame, RefreshCw, X
 } from 'lucide-react';
-import { Story, CoverConfig, User } from '../types';
+import { Story, CoverConfig, CoverElement, CoverElementType, User } from '../types';
 
 interface CoverStudioProps {
   stories: Story[];
@@ -13,24 +17,626 @@ interface CoverStudioProps {
   onSaveCover: (storyId: string, cover: CoverConfig) => Promise<void> | void;
 }
 
+// Publishing Canvas Presets
+interface CanvasPreset {
+  id: string;
+  name: string;
+  width: number;
+  height: number;
+  aspect: string;
+  description: string;
+}
+
+const CANVAS_PRESETS: CanvasPreset[] = [
+  { id: 'digital-std', name: 'Digital Standard (2:3)', width: 1600, height: 2400, aspect: '2/3', description: 'Amazon KDP, Apple Books & standard digital publishing' },
+  { id: 'compact-reader', name: 'Compact Reader (3:4)', width: 1200, height: 1600, aspect: '3/4', description: 'Tablets, e-readers and preview cards' },
+  { id: 'print-6x9', name: 'Print Trade 6×9 (2:3)', width: 1800, height: 2700, aspect: '2/3', description: 'Standard paperback front cover' },
+  { id: 'square', name: 'Audiobook & Square (1:1)', width: 1600, height: 1600, aspect: '1/1', description: 'Audiobook and square promotional editions' },
+];
+
+// Curated Google Fonts
+const FONT_OPTIONS = [
+  { id: 'Playfair Display', name: 'Playfair Display', category: 'Serif (Classic Literary)', font: "'Playfair Display', serif" },
+  { id: 'Cinzel', name: 'Cinzel', category: 'Display (Epic Fantasy)', font: "'Cinzel', serif" },
+  { id: 'Cinzel Decorative', name: 'Cinzel Decorative', category: 'Ornate (Mythic / Royal)', font: "'Cinzel Decorative', serif" },
+  { id: 'Cormorant Garamond', name: 'Cormorant Garamond', category: 'Serif (Fine Poetry & Drama)', font: "'Cormorant Garamond', serif" },
+  { id: 'EB Garamond', name: 'EB Garamond', category: 'Serif (Archival & Historic)', font: "'EB Garamond', serif" },
+  { id: 'Merriweather', name: 'Merriweather', category: 'Serif (Editorial Fiction)', font: "'Merriweather', serif" },
+  { id: 'Lora', name: 'Lora', category: 'Serif (Contemporary Romance)', font: "'Lora', serif" },
+  { id: 'Montserrat', name: 'Montserrat', category: 'Sans-serif (Modern Sci-Fi)', font: "'Montserrat', sans-serif" },
+  { id: 'Oswald', name: 'Oswald', category: 'Sans (Bold Thriller & Noir)', font: "'Oswald', sans-serif" },
+  { id: 'Georgia', name: 'Georgia', category: 'Classic System Serif', font: 'Georgia, serif' },
+  { id: 'Courier Prime', name: 'Courier Prime', category: 'Monospace (Manuscript)', font: "'Courier Prime', monospace" },
+];
+
+// Preset Gradients
 const GRADIENT_PRESETS = [
   { name: 'Obsidian Velvet', value: 'linear-gradient(135deg, #09090b 0%, #1c1917 50%, #000000 100%)' },
   { name: 'Celestial Rose', value: 'linear-gradient(135deg, #1f1017 0%, #3f1222 50%, #09090b 100%)' },
-  { name: 'Midnight Astral', value: 'linear-gradient(135deg, #09131e 0%, #14283c 50%, #06090f 100%)' },
-  { name: 'Emerald Sanctuary', value: 'linear-gradient(135deg, #091a13 0%, #103225 50%, #070d0a 100%)' },
-  { name: 'Amber Solitude', value: 'linear-gradient(135deg, #231508 0%, #45260f 50%, #0c0804 100%)' },
-  { name: 'Gothic Amethyst', value: 'linear-gradient(135deg, #180922 0%, #321045 50%, #08030d 100%)' },
-  { name: 'Crimson Abyss', value: 'linear-gradient(135deg, #2b0b0e 0%, #4c1117 50%, #0d0203 100%)' },
-  { name: 'Frost & Bone', value: 'linear-gradient(135deg, #171c22 0%, #2a343e 50%, #0e1115 100%)' },
+  { name: 'Midnight Astral', value: 'linear-gradient(135deg, #07111c 0%, #132a40 50%, #05080f 100%)' },
+  { name: 'Emerald Sanctuary', value: 'linear-gradient(135deg, #06170f 0%, #0e3022 50%, #040906 100%)' },
+  { name: 'Amber Solitude', value: 'linear-gradient(135deg, #211306 0%, #45240c 50%, #0a0603 100%)' },
+  { name: 'Gothic Amethyst', value: 'linear-gradient(135deg, #160820 0%, #331046 50%, #07030c 100%)' },
+  { name: 'Crimson Abyss', value: 'linear-gradient(135deg, #26070a 0%, #4b1016 50%, #0c0203 100%)' },
+  { name: 'Nordic Frost', value: 'linear-gradient(135deg, #121820 0%, #253340 50%, #0a0d12 100%)' },
+  { name: 'Royal Parchment', value: 'linear-gradient(135deg, #2a221b 0%, #3f3328 50%, #15110d 100%)' },
+  { name: 'Abyssal Deep', value: 'linear-gradient(135deg, #050b14 0%, #0c1b2f 50%, #020509 100%)' },
+  { name: 'Blood Moon', value: 'linear-gradient(135deg, #300609 0%, #180305 60%, #0a0102 100%)' },
+  { name: 'Sage Twilight', value: 'linear-gradient(135deg, #121f19 0%, #20352c 50%, #0a110e 100%)' },
 ];
 
-const COLOR_PALETTES = [
-  { name: 'Rose Gold', title: '#f43f5e', subtitle: '#fecdd3', author: '#fed7aa' },
-  { name: 'Gilded Amber', title: '#f59e0b', subtitle: '#fef3c7', author: '#fde68a' },
-  { name: 'Celestial Pearl', title: '#f5f5f4', subtitle: '#d6d3d1', author: '#a8a29e' },
-  { name: 'Emerald Fire', title: '#10b981', subtitle: '#d1fae5', author: '#6ee7b7' },
-  { name: 'Violet Dusk', title: '#c084fc', subtitle: '#f3e8ff', author: '#e9d5ff' },
-  { name: 'Electric Cyan', title: '#38bdf8', subtitle: '#e0f2fe', author: '#bae6fd' },
+// Curated Background Textures
+const CURATED_TEXTURES = [
+  { id: 'tex-parchment', name: 'Archival Parchment', url: 'https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?auto=format&fit=crop&q=80&w=1200' },
+  { id: 'tex-nebula', name: 'Celestial Nebula', url: 'https://images.unsplash.com/photo-1506703719100-a0f3a48c0f86?auto=format&fit=crop&q=80&w=1200' },
+  { id: 'tex-mist', name: 'Forest in Mist', url: 'https://images.unsplash.com/photo-1448375240586-882707db888b?auto=format&fit=crop&q=80&w=1200' },
+  { id: 'tex-night', name: 'Starlit Mountain', url: 'https://images.unsplash.com/photo-1519681393784-d120267933ba?auto=format&fit=crop&q=80&w=1200' },
+  { id: 'tex-velvet', name: 'Shadow Texture', url: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=1200' },
+  { id: 'tex-waves', name: 'Ocean Depths', url: 'https://images.unsplash.com/photo-1518837695005-2083093ee35b?auto=format&fit=crop&q=80&w=1200' },
+];
+
+// Professional Starter Templates
+interface TemplatePreset {
+  id: string;
+  name: string;
+  genreTag: string;
+  description: string;
+  bgType: 'gradient' | 'color' | 'image';
+  bgColor: string;
+  bgGradient: string;
+  bgImage?: string;
+  overlayPattern: 'none' | 'dots' | 'grid' | 'vignette' | 'stars';
+  overlayOpacity: number;
+  elements: Omit<CoverElement, 'id'>[];
+}
+
+const TEMPLATES: TemplatePreset[] = [
+  {
+    id: 'minimalist-literary',
+    name: 'Minimalist Literary Fiction',
+    genreTag: 'Literary',
+    description: 'Clean typographic hierarchy, generous whitespace, understated elegance.',
+    bgType: 'gradient',
+    bgColor: '#171412',
+    bgGradient: 'linear-gradient(135deg, #1f1b17 0%, #12100e 100%)',
+    overlayPattern: 'vignette',
+    overlayOpacity: 0.3,
+    elements: [
+      {
+        type: 'frame',
+        name: 'Delicate Framing',
+        x: 6,
+        y: 6,
+        width: 88,
+        height: 88,
+        strokeColor: '#fdf6e2',
+        strokeWidth: 1,
+        opacity: 0.25,
+        locked: true,
+      },
+      {
+        type: 'text',
+        name: 'Genre Tag',
+        textRole: 'badge',
+        content: 'A NOVEL',
+        x: 10,
+        y: 18,
+        width: 80,
+        fontFamily: 'Montserrat',
+        fontSize: 14,
+        fontWeight: 600,
+        textAlign: 'center',
+        letterSpacing: 8,
+        color: '#d4af37',
+        textTransform: 'uppercase',
+      },
+      {
+        type: 'text',
+        name: 'Book Title',
+        textRole: 'title',
+        content: 'The Architecture of Silence',
+        x: 10,
+        y: 35,
+        width: 80,
+        fontFamily: 'Cormorant Garamond',
+        fontSize: 46,
+        fontWeight: 600,
+        fontStyle: 'normal',
+        textAlign: 'center',
+        lineHeight: 1.15,
+        letterSpacing: 1,
+        color: '#fdf6e2',
+      },
+      {
+        type: 'line',
+        name: 'Divider Line',
+        x: 35,
+        y: 54,
+        width: 30,
+        height: 1,
+        fillColor: '#d4af37',
+        opacity: 0.6,
+      },
+      {
+        type: 'text',
+        name: 'Subtitle',
+        textRole: 'subtitle',
+        content: 'Memories etched in quiet stone',
+        x: 12,
+        y: 60,
+        width: 76,
+        fontFamily: 'Playfair Display',
+        fontSize: 18,
+        fontStyle: 'italic',
+        textAlign: 'center',
+        color: '#d6cfc7',
+      },
+      {
+        type: 'text',
+        name: 'Author Name',
+        textRole: 'author',
+        content: 'Elena Vance',
+        x: 10,
+        y: 84,
+        width: 80,
+        fontFamily: 'Cinzel',
+        fontSize: 22,
+        fontWeight: 600,
+        textAlign: 'center',
+        letterSpacing: 6,
+        color: '#fdf6e2',
+        textTransform: 'uppercase',
+      }
+    ]
+  },
+  {
+    id: 'contemporary-romance',
+    name: 'Contemporary Romance',
+    genreTag: 'Romance',
+    description: 'Blush velvet tones, romantic serif titles, and warm atmospheric glow.',
+    bgType: 'gradient',
+    bgColor: '#200b14',
+    bgGradient: 'linear-gradient(135deg, #2b0b18 0%, #4a1329 50%, #15050c 100%)',
+    overlayPattern: 'stars',
+    overlayOpacity: 0.25,
+    elements: [
+      {
+        type: 'text',
+        name: 'Bestseller Badge',
+        textRole: 'badge',
+        content: '★ NEW YORK TIMES BESTSELLER ★',
+        x: 10,
+        y: 12,
+        width: 80,
+        fontFamily: 'Montserrat',
+        fontSize: 12,
+        fontWeight: 700,
+        textAlign: 'center',
+        letterSpacing: 4,
+        color: '#fbcfe8',
+      },
+      {
+        type: 'text',
+        name: 'Book Title',
+        textRole: 'title',
+        content: 'Unwritten Letters to Autumn',
+        x: 8,
+        y: 36,
+        width: 84,
+        fontFamily: 'Playfair Display',
+        fontSize: 52,
+        fontWeight: 700,
+        fontStyle: 'italic',
+        textAlign: 'center',
+        lineHeight: 1.1,
+        color: '#f43f5e',
+        textShadow: '0 4px 20px rgba(0,0,0,0.8)',
+      },
+      {
+        type: 'text',
+        name: 'Tagline',
+        textRole: 'tagline',
+        content: 'Some heartbeats cannot be rewritten.',
+        x: 10,
+        y: 58,
+        width: 80,
+        fontFamily: 'Lora',
+        fontSize: 16,
+        fontStyle: 'italic',
+        textAlign: 'center',
+        color: '#fed7aa',
+      },
+      {
+        type: 'text',
+        name: 'Author Name',
+        textRole: 'author',
+        content: 'Clara Sterling',
+        x: 10,
+        y: 84,
+        width: 80,
+        fontFamily: 'Montserrat',
+        fontSize: 24,
+        fontWeight: 700,
+        textAlign: 'center',
+        letterSpacing: 4,
+        color: '#ffffff',
+        textTransform: 'uppercase',
+      }
+    ]
+  },
+  {
+    id: 'fantasy-magical',
+    name: 'Fantasy & Magical Realism',
+    genreTag: 'Fantasy',
+    description: 'Ornate gold typography, celestial astral gradient, and imperial double border.',
+    bgType: 'gradient',
+    bgColor: '#08131e',
+    bgGradient: 'linear-gradient(135deg, #071320 0%, #12283e 50%, #04080e 100%)',
+    overlayPattern: 'stars',
+    overlayOpacity: 0.35,
+    elements: [
+      {
+        type: 'frame',
+        name: 'Outer Gold Frame',
+        x: 5,
+        y: 5,
+        width: 90,
+        height: 90,
+        strokeColor: '#fbbf24',
+        strokeWidth: 2,
+        opacity: 0.5,
+        locked: true,
+      },
+      {
+        type: 'frame',
+        name: 'Inner Gold Frame',
+        x: 7,
+        y: 7,
+        width: 86,
+        height: 86,
+        strokeColor: '#f59e0b',
+        strokeWidth: 1,
+        opacity: 0.3,
+        locked: true,
+      },
+      {
+        type: 'text',
+        name: 'Chronicle Badge',
+        textRole: 'badge',
+        content: 'THE CHRONICLES OF ASTRALIS • BOOK I',
+        x: 10,
+        y: 14,
+        width: 80,
+        fontFamily: 'Cinzel',
+        fontSize: 12,
+        fontWeight: 600,
+        textAlign: 'center',
+        letterSpacing: 4,
+        color: '#fef3c7',
+      },
+      {
+        type: 'text',
+        name: 'Book Title',
+        textRole: 'title',
+        content: 'CROWN OF ASTRAL EMBERS',
+        x: 8,
+        y: 38,
+        width: 84,
+        fontFamily: 'Cinzel',
+        fontSize: 48,
+        fontWeight: 900,
+        textAlign: 'center',
+        lineHeight: 1.15,
+        letterSpacing: 2,
+        color: '#fbbf24',
+        textShadow: '0 4px 25px rgba(245, 158, 11, 0.4), 0 2px 10px rgba(0,0,0,0.9)',
+      },
+      {
+        type: 'text',
+        name: 'Subtitle',
+        textRole: 'subtitle',
+        content: 'When gods sleep, the stars ignite.',
+        x: 10,
+        y: 60,
+        width: 80,
+        fontFamily: 'Cormorant Garamond',
+        fontSize: 18,
+        fontStyle: 'italic',
+        textAlign: 'center',
+        color: '#bae6fd',
+      },
+      {
+        type: 'text',
+        name: 'Author Name',
+        textRole: 'author',
+        content: 'Valerius Thorne',
+        x: 10,
+        y: 84,
+        width: 80,
+        fontFamily: 'Cinzel',
+        fontSize: 24,
+        fontWeight: 700,
+        textAlign: 'center',
+        letterSpacing: 6,
+        color: '#fef3c7',
+        textTransform: 'uppercase',
+      }
+    ]
+  },
+  {
+    id: 'mystery-thriller',
+    name: 'Mystery & Psychological Thriller',
+    genreTag: 'Thriller',
+    description: 'High-contrast noir shadows, bold condensed titling, and heavy vignette.',
+    bgType: 'gradient',
+    bgColor: '#09090b',
+    bgGradient: 'linear-gradient(135deg, #111113 0%, #18181b 50%, #050506 100%)',
+    overlayPattern: 'vignette',
+    overlayOpacity: 0.65,
+    elements: [
+      {
+        type: 'text',
+        name: 'Hook Line',
+        textRole: 'tagline',
+        content: 'EVERY LIE LEAVES A BODY.',
+        x: 10,
+        y: 12,
+        width: 80,
+        fontFamily: 'Oswald',
+        fontSize: 14,
+        fontWeight: 700,
+        textAlign: 'center',
+        letterSpacing: 5,
+        color: '#ef4444',
+      },
+      {
+        type: 'text',
+        name: 'Book Title',
+        textRole: 'title',
+        content: 'THE LAST WHISPER IN BERLIN',
+        x: 6,
+        y: 35,
+        width: 88,
+        fontFamily: 'Oswald',
+        fontSize: 58,
+        fontWeight: 700,
+        textAlign: 'center',
+        lineHeight: 1.05,
+        letterSpacing: 1,
+        color: '#ffffff',
+        textShadow: '0 4px 15px rgba(0,0,0,0.9)',
+      },
+      {
+        type: 'line',
+        name: 'Blood Red Divider',
+        x: 20,
+        y: 62,
+        width: 60,
+        height: 3,
+        fillColor: '#dc2626',
+        opacity: 0.9,
+      },
+      {
+        type: 'text',
+        name: 'Subtitle',
+        textRole: 'subtitle',
+        content: 'A Detective Marcus Cross Investigation',
+        x: 10,
+        y: 68,
+        width: 80,
+        fontFamily: 'Montserrat',
+        fontSize: 14,
+        fontWeight: 600,
+        textAlign: 'center',
+        letterSpacing: 2,
+        color: '#a1a1aa',
+      },
+      {
+        type: 'text',
+        name: 'Author Name',
+        textRole: 'author',
+        content: 'H. G. KAUFMAN',
+        x: 10,
+        y: 85,
+        width: 80,
+        fontFamily: 'Oswald',
+        fontSize: 26,
+        fontWeight: 700,
+        textAlign: 'center',
+        letterSpacing: 4,
+        color: '#ffffff',
+      }
+    ]
+  },
+  {
+    id: 'sci-fi-cyber',
+    name: 'Science Fiction & Cyberpunk',
+    genreTag: 'Sci-Fi',
+    description: 'Sleek geometric typography, dark grid gridlines, and emerald/cyan accents.',
+    bgType: 'gradient',
+    bgColor: '#06111a',
+    bgGradient: 'linear-gradient(135deg, #05141e 0%, #0d2838 50%, #04090f 100%)',
+    overlayPattern: 'grid',
+    overlayOpacity: 0.35,
+    elements: [
+      {
+        type: 'text',
+        name: 'System Code',
+        textRole: 'badge',
+        content: 'NEURAL PROTOCOL // SEQUENCE 09',
+        x: 10,
+        y: 12,
+        width: 80,
+        fontFamily: 'Courier Prime',
+        fontSize: 12,
+        fontWeight: 700,
+        textAlign: 'center',
+        letterSpacing: 3,
+        color: '#38bdf8',
+      },
+      {
+        type: 'text',
+        name: 'Book Title',
+        textRole: 'title',
+        content: 'GHOST IN THE SYNAPSE',
+        x: 6,
+        y: 38,
+        width: 88,
+        fontFamily: 'Montserrat',
+        fontSize: 48,
+        fontWeight: 900,
+        textAlign: 'center',
+        lineHeight: 1.1,
+        letterSpacing: 3,
+        color: '#38bdf8',
+        textShadow: '0 0 20px rgba(56, 189, 248, 0.5), 0 2px 10px #000000',
+      },
+      {
+        type: 'text',
+        name: 'Tagline',
+        textRole: 'tagline',
+        content: 'Human consciousness is just code waiting to be overwritten.',
+        x: 12,
+        y: 60,
+        width: 76,
+        fontFamily: 'Montserrat',
+        fontSize: 14,
+        fontWeight: 400,
+        textAlign: 'center',
+        color: '#94a3b8',
+      },
+      {
+        type: 'text',
+        name: 'Author Name',
+        textRole: 'author',
+        content: 'KAI CHEN',
+        x: 10,
+        y: 84,
+        width: 80,
+        fontFamily: 'Montserrat',
+        fontSize: 22,
+        fontWeight: 700,
+        textAlign: 'center',
+        letterSpacing: 8,
+        color: '#f8fafc',
+      }
+    ]
+  },
+  {
+    id: 'historical-memoir',
+    name: 'Historical Fiction & Memoir',
+    genreTag: 'Historical',
+    description: 'Archival warm gold and sepia tones, dignified Garamond typography, and classic divider.',
+    bgType: 'gradient',
+    bgColor: '#1c1713',
+    bgGradient: 'linear-gradient(135deg, #261f18 0%, #3a2e23 50%, #15110d 100%)',
+    overlayPattern: 'vignette',
+    overlayOpacity: 0.45,
+    elements: [
+      {
+        type: 'frame',
+        name: 'Double Archival Frame',
+        x: 6,
+        y: 6,
+        width: 88,
+        height: 88,
+        strokeColor: '#d4af37',
+        strokeWidth: 1.5,
+        opacity: 0.4,
+        locked: true,
+      },
+      {
+        type: 'text',
+        name: 'Book Title',
+        textRole: 'title',
+        content: 'The Silk Merchant of Florence',
+        x: 8,
+        y: 35,
+        width: 84,
+        fontFamily: 'EB Garamond',
+        fontSize: 50,
+        fontWeight: 700,
+        textAlign: 'center',
+        lineHeight: 1.15,
+        color: '#fef3c7',
+        textShadow: '0 2px 10px rgba(0,0,0,0.8)',
+      },
+      {
+        type: 'text',
+        name: 'Subtitle',
+        textRole: 'subtitle',
+        content: 'A Chronicle of the Renaissance Guilds',
+        x: 10,
+        y: 56,
+        width: 80,
+        fontFamily: 'Lora',
+        fontSize: 16,
+        fontStyle: 'italic',
+        textAlign: 'center',
+        color: '#d4af37',
+      },
+      {
+        type: 'text',
+        name: 'Author Name',
+        textRole: 'author',
+        content: 'Matteo Bellini',
+        x: 10,
+        y: 84,
+        width: 80,
+        fontFamily: 'Cinzel',
+        fontSize: 22,
+        fontWeight: 600,
+        textAlign: 'center',
+        letterSpacing: 6,
+        color: '#fef3c7',
+        textTransform: 'uppercase',
+      }
+    ]
+  },
+  {
+    id: 'blank-slate',
+    name: 'Blank Canvas',
+    genreTag: 'Custom',
+    description: 'Pure obsidian slate ready for completely customized author design.',
+    bgType: 'gradient',
+    bgColor: '#0f0e0d',
+    bgGradient: 'linear-gradient(135deg, #1c1917 0%, #09090b 100%)',
+    overlayPattern: 'none',
+    overlayOpacity: 0,
+    elements: [
+      {
+        type: 'text',
+        name: 'Book Title',
+        textRole: 'title',
+        content: 'Your Book Title',
+        x: 10,
+        y: 40,
+        width: 80,
+        fontFamily: 'Playfair Display',
+        fontSize: 48,
+        fontWeight: 700,
+        textAlign: 'center',
+        lineHeight: 1.2,
+        color: '#f5f5f4',
+      },
+      {
+        type: 'text',
+        name: 'Author Name',
+        textRole: 'author',
+        content: 'Author Name',
+        x: 10,
+        y: 82,
+        width: 80,
+        fontFamily: 'Montserrat',
+        fontSize: 20,
+        fontWeight: 600,
+        textAlign: 'center',
+        letterSpacing: 4,
+        color: '#d6d3d1',
+        textTransform: 'uppercase',
+      }
+    ]
+  }
 ];
 
 export const CoverStudio: React.FC<CoverStudioProps> = ({ 
@@ -40,1238 +646,2158 @@ export const CoverStudio: React.FC<CoverStudioProps> = ({
   onBack, 
   onSaveCover 
 }) => {
+  // 1. Story Selection & Association
   const selectedStory = stories.find(s => s.id === initialStoryId) || stories[0];
   const [activeStoryId, setActiveStoryId] = useState<string>(selectedStory?.id || stories[0]?.id || '');
   const currentStory = stories.find(s => s.id === activeStoryId) || selectedStory;
 
   const defaultAuthor = currentUser?.name || currentStory?.authorName || 'Author';
 
-  const createInitialCover = (story?: Story): CoverConfig => {
-    if (story?.cover) {
+  // Helper to convert legacy CoverConfig into interactive elements
+  const createElementsFromLegacy = (cfg: CoverConfig): CoverElement[] => {
+    if (cfg.elements && cfg.elements.length > 0) {
+      return cfg.elements;
+    }
+
+    const titleEl: CoverElement = {
+      id: `el_title_${Date.now()}`,
+      type: 'text',
+      name: 'Book Title',
+      textRole: 'title',
+      content: cfg.title || 'Untitled Masterpiece',
+      x: 10,
+      y: cfg.titlePosition ? cfg.titlePosition.y : 35,
+      width: 80,
+      fontFamily: cfg.fontFamily === 'sans' ? 'Montserrat' : cfg.fontFamily === 'mono' ? 'Courier Prime' : 'Playfair Display',
+      fontSize: (cfg.titleSize || 2.4) * 18,
+      fontWeight: cfg.fontWeight || 'bold',
+      fontStyle: cfg.fontStyle || 'normal',
+      textAlign: cfg.textAlign || 'center',
+      color: cfg.titleColor || '#f43f5e',
+      lineHeight: 1.15,
+      letterSpacing: 1,
+    };
+
+    const authorEl: CoverElement = {
+      id: `el_author_${Date.now() + 1}`,
+      type: 'text',
+      name: 'Author Name',
+      textRole: 'author',
+      content: cfg.author || defaultAuthor,
+      x: 10,
+      y: cfg.authorPosition ? cfg.authorPosition.y : 85,
+      width: 80,
+      fontFamily: cfg.fontFamily === 'sans' ? 'Montserrat' : 'Cinzel',
+      fontSize: 22,
+      fontWeight: 'bold',
+      fontStyle: 'normal',
+      textAlign: cfg.textAlign || 'center',
+      color: cfg.authorColor || '#e4e4e7',
+      letterSpacing: 5,
+      textTransform: 'uppercase',
+    };
+
+    const list: CoverElement[] = [titleEl];
+
+    if (cfg.subtitle) {
+      list.push({
+        id: `el_sub_${Date.now() + 2}`,
+        type: 'text',
+        name: 'Subtitle',
+        textRole: 'subtitle',
+        content: cfg.subtitle,
+        x: 12,
+        y: (cfg.titlePosition ? cfg.titlePosition.y : 35) + 16,
+        width: 76,
+        fontFamily: 'Lora',
+        fontSize: (cfg.subtitleSize || 1.1) * 16,
+        fontStyle: 'italic',
+        textAlign: cfg.textAlign || 'center',
+        color: cfg.subtitleColor || '#e4e4e7',
+      });
+    }
+
+    if (cfg.tagline) {
+      list.push({
+        id: `el_tag_${Date.now() + 3}`,
+        type: 'text',
+        name: 'Tagline',
+        textRole: 'tagline',
+        content: cfg.tagline,
+        x: 10,
+        y: 65,
+        width: 80,
+        fontFamily: 'Lora',
+        fontSize: 15,
+        fontStyle: 'italic',
+        textAlign: cfg.textAlign || 'center',
+        color: '#fef3c7',
+      });
+    }
+
+    if (cfg.badgeText) {
+      list.push({
+        id: `el_badge_${Date.now() + 4}`,
+        type: 'text',
+        name: 'Badge / Header',
+        textRole: 'badge',
+        content: cfg.badgeText,
+        x: 10,
+        y: 12,
+        width: 80,
+        fontFamily: 'Montserrat',
+        fontSize: 12,
+        fontWeight: 700,
+        textAlign: 'center',
+        letterSpacing: 3,
+        color: '#fbcfe8',
+      });
+    }
+
+    list.push(authorEl);
+    return list;
+  };
+
+  // 2. Cover State
+  const [cover, setCover] = useState<CoverConfig>(() => {
+    if (currentStory?.cover) {
       return {
-        ...story.cover,
-        author: story.cover.author || defaultAuthor,
-        bgType: story.cover.bgType || (story.cover.bgImage ? 'image' : 'gradient'),
-        overlayOpacity: typeof story.cover.overlayOpacity === 'number' ? story.cover.overlayOpacity : 0.35,
-        overlayColor: story.cover.overlayColor || '#000000',
-        fontStyle: story.cover.fontStyle || 'normal',
-        fontWeight: story.cover.fontWeight || 'bold',
-        textAlign: story.cover.textAlign || 'center',
-        titleSize: story.cover.titleSize || 2.4,
-        subtitleSize: story.cover.subtitleSize || 1.1,
+        ...currentStory.cover,
+        width: currentStory.cover.width || 1600,
+        height: currentStory.cover.height || 2400,
+        elements: createElementsFromLegacy(currentStory.cover)
       };
     }
+    // Default to Minimalist Literary
+    const tpl = TEMPLATES[0];
     return {
-      title: story?.title || 'Untitled Masterpiece',
+      title: currentStory?.title || 'Untitled Masterpiece',
       author: defaultAuthor,
       subtitle: 'A Novel',
       tagline: 'When shadows speak, the cosmos listens.',
-      genre: story?.genre || 'Fantasy',
+      genre: currentStory?.genre || 'Fiction',
       showGenre: true,
-      bgColor: '#18181b',
-      bgGradient: GRADIENT_PRESETS[0].value,
-      bgType: 'gradient',
-      bgImage: '',
-      overlayPattern: 'stars',
-      overlayOpacity: 0.35,
+      bgColor: tpl.bgColor,
+      bgGradient: tpl.bgGradient,
+      bgType: tpl.bgType,
+      bgImage: tpl.bgImage || '',
+      overlayPattern: tpl.overlayPattern,
+      overlayOpacity: tpl.overlayOpacity,
       overlayColor: '#000000',
       fontFamily: 'serif',
       fontStyle: 'normal',
       fontWeight: 'bold',
       textAlign: 'center',
-      titleColor: '#f43f5e',
-      subtitleColor: '#e4e4e7',
-      authorColor: '#e4e4e7',
+      titleColor: '#fdf6e2',
+      authorColor: '#fdf6e2',
       titleSize: 2.4,
-      subtitleSize: 1.1,
-      titlePosition: { x: 50, y: 38 },
-      authorPosition: { x: 50, y: 88 },
-      badgeText: 'First Edition',
-      artworkStyle: 'Atmospheric Celestial Canvas'
+      titlePosition: { x: 50, y: 35 },
+      authorPosition: { x: 50, y: 84 },
+      width: 1600,
+      height: 2400,
+      elements: tpl.elements.map((el, i) => ({ ...el, id: `el_${Date.now()}_${i}` }))
     };
-  };
+  });
 
-  const [cover, setCover] = useState<CoverConfig>(() => createInitialCover(currentStory));
-  
-  // History stack for Undo
+  // History stack for Undo / Redo
   const [history, setHistory] = useState<CoverConfig[]>([]);
-  const [activeTab, setActiveTab] = useState<'typography' | 'background' | 'overlay' | 'details'>('typography');
-  const [previewMode, setPreviewMode] = useState(false);
-  const [notice, setNotice] = useState<string>('');
-  const [isExporting, setIsExporting] = useState(false);
+  const [redoStack, setRedoStack] = useState<CoverConfig[]>([]);
 
-  // Artwork URL validation state
-  const [customUrlInput, setCustomUrlInput] = useState('');
-  const [urlStatus, setUrlStatus] = useState<'idle' | 'validating' | 'valid' | 'invalid'>('idle');
-  const [urlMessage, setUrlMessage] = useState('');
+  // Selection & UI Panels
+  const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
+  const [leftTab, setLeftTab] = useState<'templates' | 'elements' | 'artwork' | 'typography' | 'layers'>('templates');
+  const [zoomLevel, setZoomLevel] = useState<number>(100);
+  const [showGuides, setShowGuides] = useState<boolean>(true);
+  const [showSafeMargins, setShowSafeMargins] = useState<boolean>(true);
+  const [previewMode, setPreviewMode] = useState<'none' | 'distraction-free' | '3d-mockup'>('none');
+  
+  // Save & Export Status
+  const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'unsaved' | 'error'>('saved');
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [isExporting, setIsExporting] = useState<boolean>(false);
+  const [exportScale, setExportScale] = useState<number>(1);
 
+  // Canvas Refs & Dragging
+  const canvasContainerRef = useRef<HTMLDivElement>(null);
+  const canvasElementRef = useRef<HTMLDivElement>(null);
+  const isDraggingRef = useRef<boolean>(false);
+  const dragStartPos = useRef<{ x: number; y: number; elX: number; elY: number }>({ x: 0, y: 0, elX: 0, elY: 0 });
+
+  // Upload Refs
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [userUploadedImages, setUserUploadedImages] = useState<string[]>(() => {
+    try {
+      const stored = localStorage.getItem('inokora_cover_uploads_v2');
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  });
 
-  // When selected story changes
+  const selectedElement = cover.elements?.find(e => e.id === selectedElementId);
+
+  // Sync when active story switches
   useEffect(() => {
     if (currentStory) {
-      setCover(createInitialCover(currentStory));
+      if (currentStory.cover) {
+        setCover({
+          ...currentStory.cover,
+          width: currentStory.cover.width || 1600,
+          height: currentStory.cover.height || 2400,
+          elements: createElementsFromLegacy(currentStory.cover)
+        });
+      } else {
+        const tpl = TEMPLATES[0];
+        setCover({
+          title: currentStory.title || 'Untitled Masterpiece',
+          author: currentStory.authorName || defaultAuthor,
+          bgColor: tpl.bgColor,
+          bgGradient: tpl.bgGradient,
+          bgType: tpl.bgType,
+          bgImage: '',
+          overlayPattern: tpl.overlayPattern,
+          overlayOpacity: tpl.overlayOpacity,
+          overlayColor: '#000000',
+          fontFamily: 'serif',
+          titleColor: '#fdf6e2',
+          authorColor: '#fdf6e2',
+          titleSize: 2.4,
+          titlePosition: { x: 50, y: 35 },
+          authorPosition: { x: 50, y: 84 },
+          width: 1600,
+          height: 2400,
+          elements: tpl.elements.map((el, i) => ({ ...el, id: `el_${Date.now()}_${i}` }))
+        });
+      }
+      setSelectedElementId(null);
       setHistory([]);
+      setRedoStack([]);
+      setSaveStatus('saved');
     }
   }, [activeStoryId]);
 
-  const updateCoverWithHistory = (updater: (prev: CoverConfig) => CoverConfig) => {
+  // Toast feedback helper
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3500);
+  };
+
+  // State mutation with full Undo support
+  const updateCover = useCallback((updater: (prev: CoverConfig) => CoverConfig, recordHistory = true) => {
     setCover(prev => {
       const next = updater(prev);
-      setHistory(h => [...h.slice(-15), prev]);
+      if (recordHistory) {
+        setHistory(h => [...h.slice(-25), prev]);
+        setRedoStack([]);
+      }
+      setSaveStatus('unsaved');
       return next;
     });
-  };
+  }, []);
 
   const handleUndo = () => {
     if (history.length === 0) return;
     const prev = history[history.length - 1];
     setHistory(h => h.slice(0, -1));
+    setRedoStack(r => [cover, ...r]);
     setCover(prev);
-    showNotice('Reverted to previous state');
+    setSaveStatus('unsaved');
+    showToast('Undo previous action');
   };
 
-  const handleReset = () => {
-    if (confirm('Reset cover to original story defaults?')) {
-      const resetConfig = createInitialCover(currentStory);
-      updateCoverWithHistory(() => resetConfig);
-      showNotice('Reset to original book defaults');
+  const handleRedo = () => {
+    if (redoStack.length === 0) return;
+    const next = redoStack[0];
+    setRedoStack(r => r.slice(1));
+    setHistory(h => [...h, cover]);
+    setCover(next);
+    setSaveStatus('unsaved');
+    showToast('Redo action');
+  };
+
+  // Keyboard Shortcuts: Ctrl+Z (Undo), Ctrl+Y (Redo), Ctrl+S (Save), Delete (Delete Element)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't intercept if user is typing in an input/textarea
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement).tagName)) {
+        return;
+      }
+
+      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+      const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
+
+      if (cmdOrCtrl && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          handleRedo();
+        } else {
+          handleUndo();
+        }
+      } else if (cmdOrCtrl && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        handleRedo();
+      } else if (cmdOrCtrl && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        handleSaveCover();
+      } else if (cmdOrCtrl && e.key.toLowerCase() === 'd') {
+        e.preventDefault();
+        if (selectedElementId) {
+          handleDuplicateElement(selectedElementId);
+        }
+      } else if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (selectedElementId) {
+          e.preventDefault();
+          handleDeleteElement(selectedElementId);
+        }
+      } else if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+        if (selectedElementId) {
+          e.preventDefault();
+          const step = e.shiftKey ? 2 : 0.5;
+          updateCover(prev => ({
+            ...prev,
+            elements: (prev.elements || []).map(el => {
+              if (el.id !== selectedElementId || el.locked) return el;
+              let dx = 0;
+              let dy = 0;
+              if (e.key === 'ArrowLeft') dx = -step;
+              if (e.key === 'ArrowRight') dx = step;
+              if (e.key === 'ArrowUp') dy = -step;
+              if (e.key === 'ArrowDown') dy = step;
+              return {
+                ...el,
+                x: Math.max(0, Math.min(100 - (el.width || 20), el.x + dx)),
+                y: Math.max(0, Math.min(100, el.y + dy))
+              };
+            })
+          }));
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedElementId, cover, history, redoStack]);
+
+  // Load a template
+  const handleApplyTemplate = (tpl: TemplatePreset) => {
+    if (confirm(`Apply the "${tpl.name}" template? Your canvas elements will be replaced with this editable layout.`)) {
+      updateCover(prev => ({
+        ...prev,
+        templateId: tpl.id,
+        bgType: tpl.bgType,
+        bgColor: tpl.bgColor,
+        bgGradient: tpl.bgGradient,
+        bgImage: tpl.bgImage || '',
+        overlayPattern: tpl.overlayPattern,
+        overlayOpacity: tpl.overlayOpacity,
+        elements: tpl.elements.map((el, i) => {
+          let content = el.content;
+          // Dynamically preserve current story's title and author
+          if (el.textRole === 'title' && currentStory?.title) {
+            content = currentStory.title;
+          } else if (el.textRole === 'author' && currentStory?.authorName) {
+            content = currentStory.authorName;
+          }
+          return {
+            ...el,
+            id: `el_${Date.now()}_${i}`,
+            content
+          };
+        })
+      }));
+      setSelectedElementId(null);
+      showToast(`Applied "${tpl.name}" template`);
     }
   };
 
-  const showNotice = (msg: string) => {
-    setNotice(msg);
-    setTimeout(() => setNotice(''), 3500);
-  };
+  // Add a new element to canvas
+  const handleAddElement = (type: CoverElementType, options?: Partial<CoverElement>) => {
+    const newId = `el_${type}_${Date.now()}`;
+    let newEl: CoverElement;
 
-  const handleSaveDraft = async () => {
-    if (!activeStoryId) return;
-    try {
-      await onSaveCover(activeStoryId, cover);
-      showNotice('Cover saved to story draft successfully!');
-    } catch (err: any) {
-      showNotice('Error saving cover: ' + (err?.message || 'Check connection'));
+    if (type === 'text') {
+      newEl = {
+        id: newId,
+        type: 'text',
+        name: options?.name || 'Custom Text',
+        textRole: options?.textRole || 'custom',
+        content: options?.content || 'Your Text Here',
+        x: 15,
+        y: 50,
+        width: 70,
+        fontFamily: options?.fontFamily || 'Playfair Display',
+        fontSize: options?.fontSize || 28,
+        fontWeight: options?.fontWeight || 'bold',
+        textAlign: 'center',
+        color: '#fdf6e2',
+        lineHeight: 1.2,
+        ...options
+      };
+    } else if (type === 'frame') {
+      newEl = {
+        id: newId,
+        type: 'frame',
+        name: 'Border Frame',
+        x: 8,
+        y: 8,
+        width: 84,
+        height: 84,
+        strokeColor: '#d4af37',
+        strokeWidth: 2,
+        opacity: 0.6,
+        ...options
+      };
+    } else if (type === 'line') {
+      newEl = {
+        id: newId,
+        type: 'line',
+        name: 'Divider Line',
+        x: 25,
+        y: 52,
+        width: 50,
+        height: 2,
+        fillColor: '#d4af37',
+        opacity: 0.8,
+        ...options
+      };
+    } else if (type === 'shape') {
+      newEl = {
+        id: newId,
+        type: 'shape',
+        name: options?.name || 'Banner Box',
+        shapeType: options?.shapeType || 'rectangle',
+        x: 20,
+        y: 45,
+        width: 60,
+        height: 12,
+        fillColor: '#1c1917',
+        strokeColor: '#d4af37',
+        strokeWidth: 1,
+        borderRadius: 4,
+        opacity: 0.9,
+        ...options
+      };
+    } else {
+      // image
+      newEl = {
+        id: newId,
+        type: 'image',
+        name: options?.name || 'Artwork Layer',
+        src: options?.src || CURATED_TEXTURES[0].url,
+        x: 20,
+        y: 30,
+        width: 60,
+        height: 40,
+        objectFit: 'cover',
+        opacity: 1,
+        ...options
+      };
     }
+
+    updateCover(prev => ({
+      ...prev,
+      elements: [...(prev.elements || []), newEl]
+    }));
+    setSelectedElementId(newId);
+    showToast(`Added ${newEl.name}`);
   };
 
-  // Device File Upload Handler
-  const handleDeviceUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleDeleteElement = (id: string) => {
+    updateCover(prev => ({
+      ...prev,
+      elements: (prev.elements || []).filter(el => el.id !== id)
+    }));
+    if (selectedElementId === id) {
+      setSelectedElementId(null);
+    }
+    showToast('Element deleted');
+  };
+
+  const handleDuplicateElement = (id: string) => {
+    const el = cover.elements?.find(e => e.id === id);
+    if (!el) return;
+    const duplicated: CoverElement = {
+      ...el,
+      id: `el_${el.type}_${Date.now()}`,
+      name: `${el.name} (Copy)`,
+      x: Math.min(80, el.x + 3),
+      y: Math.min(85, el.y + 3)
+    };
+    updateCover(prev => ({
+      ...prev,
+      elements: [...(prev.elements || []), duplicated]
+    }));
+    setSelectedElementId(duplicated.id);
+    showToast(`Duplicated ${el.name}`);
+  };
+
+  const handleMoveLayer = (id: string, direction: 'up' | 'down') => {
+    const elements = [...(cover.elements || [])];
+    const index = elements.findIndex(e => e.id === id);
+    if (index === -1) return;
+
+    if (direction === 'up' && index < elements.length - 1) {
+      const temp = elements[index];
+      elements[index] = elements[index + 1];
+      elements[index + 1] = temp;
+    } else if (direction === 'down' && index > 0) {
+      const temp = elements[index];
+      elements[index] = elements[index - 1];
+      elements[index - 1] = temp;
+    }
+
+    updateCover(prev => ({ ...prev, elements }));
+  };
+
+  const handleToggleLock = (id: string) => {
+    updateCover(prev => ({
+      ...prev,
+      elements: (prev.elements || []).map(el => el.id === id ? { ...el, locked: !el.locked } : el)
+    }));
+  };
+
+  // Image Upload Handlers
+  const handleUploadImageFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (!file.type.startsWith('image/')) {
-      alert('Please select a valid image file (PNG, JPG, WebP).');
-      return;
-    }
-
+    // Validate size (max 8MB)
     if (file.size > 8 * 1024 * 1024) {
       alert('Image file is too large. Please select an image under 8MB.');
       return;
     }
 
+    // Validate type
+    if (!file.type.startsWith('image/')) {
+      alert('Unsupported file format. Please upload PNG, JPG, or WebP images.');
+      return;
+    }
+
     const reader = new FileReader();
     reader.onload = (event) => {
-      const result = event.target?.result as string;
-      if (result) {
-        updateCoverWithHistory(c => ({
-          ...c,
-          bgType: 'image',
-          bgImage: result
-        }));
-        showNotice('Cover artwork loaded from device');
+      const dataUrl = event.target?.result as string;
+      if (dataUrl) {
+        setUserUploadedImages(prev => {
+          const updated = [dataUrl, ...prev.slice(0, 15)];
+          try {
+            localStorage.setItem('inokora_cover_uploads_v2', JSON.stringify(updated));
+          } catch {}
+          return updated;
+        });
+        showToast('Artwork uploaded successfully');
       }
     };
     reader.readAsDataURL(file);
     e.target.value = '';
   };
 
-  // Validate and apply external Artwork URL
-  const handleValidateAndApplyUrl = () => {
-    if (!customUrlInput.trim()) {
-      setUrlStatus('invalid');
-      setUrlMessage('Please enter an image URL.');
-      return;
+  // -------------------------------------------------------------
+  // High-Resolution Native Canvas Exporter
+  // -------------------------------------------------------------
+  const generateExportDataUrl = async (scale = 1): Promise<string> => {
+    const targetW = (cover.width || 1600) * scale;
+    const targetH = (cover.height || 2400) * scale;
+
+    const offscreen = document.createElement('canvas');
+    offscreen.width = targetW;
+    offscreen.height = targetH;
+    const ctx = offscreen.getContext('2d');
+    if (!ctx) throw new Error('Canvas 2D context unavailable.');
+
+    // 1. Fill Background
+    if (cover.bgType === 'color') {
+      ctx.fillStyle = cover.bgColor || '#141210';
+      ctx.fillRect(0, 0, targetW, targetH);
+    } else if (cover.bgType === 'gradient' || !cover.bgImage) {
+      // Parse or simulate linear gradient
+      const grad = ctx.createLinearGradient(0, 0, targetW, targetH);
+      if (cover.bgGradient.includes('#09090b') || cover.bgGradient.includes('#1c1917')) {
+        grad.addColorStop(0, '#1c1917');
+        grad.addColorStop(0.5, '#12100e');
+        grad.addColorStop(1, '#09090b');
+      } else if (cover.bgGradient.includes('#2b0b18')) {
+        grad.addColorStop(0, '#2b0b18');
+        grad.addColorStop(0.5, '#4a1329');
+        grad.addColorStop(1, '#15050c');
+      } else if (cover.bgGradient.includes('#071320')) {
+        grad.addColorStop(0, '#071320');
+        grad.addColorStop(0.5, '#12283e');
+        grad.addColorStop(1, '#04080e');
+      } else {
+        grad.addColorStop(0, '#261f18');
+        grad.addColorStop(0.5, '#3a2e23');
+        grad.addColorStop(1, '#15110d');
+      }
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, targetW, targetH);
     }
 
-    setUrlStatus('validating');
-    setUrlMessage('Testing image connection...');
+    // Background Image
+    if (cover.bgType === 'image' && cover.bgImage) {
+      await new Promise<void>((resolve) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+          // Draw with object-fit: cover logic
+          const imgAspect = img.width / img.height;
+          const canvasAspect = targetW / targetH;
+          let renderW = targetW;
+          let renderH = targetH;
+          let offsetX = 0;
+          let offsetY = 0;
+          if (imgAspect > canvasAspect) {
+            renderW = targetH * imgAspect;
+            offsetX = -(renderW - targetW) / 2;
+          } else {
+            renderH = targetW / imgAspect;
+            offsetY = -(renderH - targetH) / 2;
+          }
+          ctx.drawImage(img, offsetX, offsetY, renderW, renderH);
+          resolve();
+        };
+        img.onerror = () => resolve();
+        img.src = cover.bgImage!;
+      });
+    }
 
-    const img = new Image();
-    img.onload = () => {
-      setUrlStatus('valid');
-      setUrlMessage('Image successfully verified.');
-      updateCoverWithHistory(c => ({
-        ...c,
-        bgType: 'image',
-        bgImage: customUrlInput.trim()
-      }));
-      showNotice('Artwork URL applied to cover');
-    };
-    img.onerror = () => {
-      setUrlStatus('invalid');
-      setUrlMessage('Could not load image from this URL. Please verify the link or upload a file directly.');
-    };
-    img.src = customUrlInput.trim();
-  };
+    // 2. Contrast Overlay
+    if (cover.overlayOpacity && cover.overlayOpacity > 0) {
+      ctx.fillStyle = cover.overlayColor || '#000000';
+      ctx.globalAlpha = cover.overlayOpacity;
+      ctx.fillRect(0, 0, targetW, targetH);
+      ctx.globalAlpha = 1.0;
+    }
 
-  // High-Resolution 1600 × 2400 PNG Export
-  const handleExportPNG = async () => {
-    setIsExporting(true);
-    showNotice('Rendering high-resolution 1600 × 2400 PNG...');
+    // Vignette pattern if active
+    if (cover.overlayPattern === 'vignette') {
+      const radius = Math.max(targetW, targetH) * 0.75;
+      const vignette = ctx.createRadialGradient(targetW / 2, targetH / 2, radius * 0.2, targetW / 2, targetH / 2, radius);
+      vignette.addColorStop(0, 'rgba(0,0,0,0)');
+      vignette.addColorStop(1, 'rgba(0,0,0,0.7)');
+      ctx.fillStyle = vignette;
+      ctx.fillRect(0, 0, targetW, targetH);
+    }
 
-    try {
-      const width = 1600;
-      const height = 2400;
-      const canvas = document.createElement('canvas');
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) throw new Error('2D Canvas unavailable');
+    // 3. Render Each Element by Layer Order
+    const elements = cover.elements || [];
+    for (const el of elements) {
+      const elX = (el.x / 100) * targetW;
+      const elY = (el.y / 100) * targetH;
+      const elW = (el.width / 100) * targetW;
+      const elH = el.height ? (el.height / 100) * targetH : elW;
 
-      // 1. Draw Background
-      if (cover.bgType === 'image' && cover.bgImage) {
+      ctx.save();
+      if (el.opacity !== undefined) {
+        ctx.globalAlpha = el.opacity;
+      }
+
+      if (el.rotation) {
+        ctx.translate(elX + elW / 2, elY + elH / 2);
+        ctx.rotate((el.rotation * Math.PI) / 180);
+        ctx.translate(-(elX + elW / 2), -(elY + elH / 2));
+      }
+
+      if (el.type === 'frame') {
+        ctx.strokeStyle = el.strokeColor || '#d4af37';
+        ctx.lineWidth = (el.strokeWidth || 2) * scale;
+        ctx.strokeRect(elX, elY, elW, elH);
+      } else if (el.type === 'line') {
+        ctx.fillStyle = el.fillColor || el.strokeColor || '#d4af37';
+        ctx.fillRect(elX, elY, elW, Math.max(2, (el.height || 2) * scale));
+      } else if (el.type === 'shape') {
+        if (el.shapeType === 'circle') {
+          ctx.beginPath();
+          ctx.arc(elX + elW / 2, elY + elH / 2, elW / 2, 0, Math.PI * 2);
+          if (el.fillColor) {
+            ctx.fillStyle = el.fillColor;
+            ctx.fill();
+          }
+          if (el.strokeColor) {
+            ctx.strokeStyle = el.strokeColor;
+            ctx.lineWidth = (el.strokeWidth || 1) * scale;
+            ctx.stroke();
+          }
+        } else {
+          if (el.fillColor) {
+            ctx.fillStyle = el.fillColor;
+            ctx.fillRect(elX, elY, elW, elH);
+          }
+          if (el.strokeColor) {
+            ctx.strokeStyle = el.strokeColor;
+            ctx.lineWidth = (el.strokeWidth || 1) * scale;
+            ctx.strokeRect(elX, elY, elW, elH);
+          }
+        }
+      } else if (el.type === 'image' && el.src) {
         await new Promise<void>((resolve) => {
           const img = new Image();
           img.crossOrigin = 'anonymous';
           img.onload = () => {
-            // Draw image maintaining cover aspect ratio
-            const imgAspect = img.width / img.height;
-            const canvasAspect = width / height;
-            let drawW = width;
-            let drawH = height;
-            let offsetX = 0;
-            let offsetY = 0;
-
-            if (imgAspect > canvasAspect) {
-              drawW = height * imgAspect;
-              offsetX = -(drawW - width) / 2;
-            } else {
-              drawH = width / imgAspect;
-              offsetY = -(drawH - height) / 2;
-            }
-
-            ctx.drawImage(img, offsetX, offsetY, drawW, drawH);
+            ctx.drawImage(img, elX, elY, elW, elH);
             resolve();
           };
-          img.onerror = () => {
-            // Fallback gradient if image failed to load with CORS
-            const grad = ctx.createLinearGradient(0, 0, width, height);
-            grad.addColorStop(0, '#1c1917');
-            grad.addColorStop(0.5, '#292524');
-            grad.addColorStop(1, '#09090b');
-            ctx.fillStyle = grad;
-            ctx.fillRect(0, 0, width, height);
-            resolve();
-          };
-          img.src = cover.bgImage!;
+          img.onerror = () => resolve();
+          img.src = el.src!;
         });
-      } else {
-        // Render rich gradient background
-        const grad = ctx.createLinearGradient(0, 0, width, height);
-        grad.addColorStop(0, cover.bgColor || '#18181b');
-        grad.addColorStop(0.5, '#292524');
-        grad.addColorStop(1, '#09090b');
-        ctx.fillStyle = grad;
-        ctx.fillRect(0, 0, width, height);
-      }
+      } else if (el.type === 'text') {
+        const rawText = el.content || '';
+        const displayText = el.textTransform === 'uppercase'
+          ? rawText.toUpperCase()
+          : el.textTransform === 'lowercase'
+          ? rawText.toLowerCase()
+          : rawText;
 
-      // 2. Contrast Overlay Layer
-      const overlayOpacity = typeof cover.overlayOpacity === 'number' ? cover.overlayOpacity : 0.35;
-      if (overlayOpacity > 0) {
-        ctx.save();
-        ctx.fillStyle = cover.overlayColor || '#000000';
-        ctx.globalAlpha = overlayOpacity;
-        ctx.fillRect(0, 0, width, height);
-        ctx.restore();
-      }
+        const scaledFontSize = Math.round((el.fontSize || 28) * scale * 2.2);
+        const weight = el.fontWeight || 'normal';
+        const style = el.fontStyle === 'italic' ? 'italic' : 'normal';
+        const family = el.fontFamily || 'Playfair Display';
 
-      // 3. Starlight / Pattern Texture
-      if (cover.overlayPattern === 'stars') {
-        ctx.save();
-        ctx.fillStyle = 'rgba(244, 63, 94, 0.45)';
-        for (let x = 60; x < width; x += 70) {
-          for (let y = 60; y < height; y += 70) {
-            ctx.beginPath();
-            const radius = (x * 13 + y * 7) % 3 === 0 ? 3 : 1.8;
-            ctx.arc(x, y, radius, 0, Math.PI * 2);
-            ctx.fill();
+        ctx.font = `${style} ${weight} ${scaledFontSize}px ${family}, serif`;
+        ctx.fillStyle = el.color || '#fdf6e2';
+        ctx.textAlign = el.textAlign === 'center' ? 'center' : el.textAlign === 'right' ? 'right' : 'left';
+        ctx.textBaseline = 'top';
+
+        if (el.textShadow) {
+          ctx.shadowColor = 'rgba(0,0,0,0.85)';
+          ctx.shadowBlur = 10 * scale;
+          ctx.shadowOffsetY = 4 * scale;
+        } else {
+          ctx.shadowColor = 'transparent';
+        }
+
+        const renderX = el.textAlign === 'center' ? elX + elW / 2 : el.textAlign === 'right' ? elX + elW : elX;
+        
+        // Simple word wrap
+        const words = displayText.split(' ');
+        let line = '';
+        let currentLineY = elY;
+        const lineHeightPx = scaledFontSize * (el.lineHeight || 1.15);
+
+        for (let n = 0; n < words.length; n++) {
+          const testLine = line + words[n] + ' ';
+          const metrics = ctx.measureText(testLine);
+          if (metrics.width > elW && n > 0) {
+            ctx.fillText(line.trim(), renderX, currentLineY);
+            line = words[n] + ' ';
+            currentLineY += lineHeightPx;
+          } else {
+            line = testLine;
           }
         }
-        ctx.restore();
-      } else if (cover.overlayPattern === 'dots') {
-        ctx.save();
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.18)';
-        for (let x = 40; x < width; x += 50) {
-          for (let y = 40; y < height; y += 50) {
-            ctx.beginPath();
-            ctx.arc(x, y, 2, 0, Math.PI * 2);
-            ctx.fill();
-          }
-        }
-        ctx.restore();
+        ctx.fillText(line.trim(), renderX, currentLineY);
       }
 
-      // 4. Double Ornate Framing Borders
-      ctx.save();
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
-      ctx.lineWidth = 6;
-      ctx.strokeRect(60, 60, width - 120, height - 120);
-
-      ctx.strokeStyle = 'rgba(244, 63, 94, 0.45)';
-      ctx.lineWidth = 2.5;
-      ctx.strokeRect(80, 80, width - 160, height - 160);
       ctx.restore();
+    }
 
-      // 5. Badge & Genre Pills
-      const badgeY = 180;
-      if (cover.badgeText) {
-        ctx.save();
-        ctx.font = 'bold 36px monospace';
-        ctx.textAlign = 'center';
-        const badgeStr = cover.badgeText.toUpperCase();
-        const metrics = ctx.measureText(badgeStr);
-        const pillW = metrics.width + 70;
-        const pillH = 70;
-        const pillX = (width - pillW) / 2;
+    return offscreen.toDataURL('image/png', 0.95);
+  };
 
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-        ctx.beginPath();
-        if (typeof ctx.roundRect === 'function') {
-          ctx.roundRect(pillX, badgeY - 50, pillW, pillH, 35);
-        } else {
-          ctx.rect(pillX, badgeY - 50, pillW, pillH);
-        }
-        ctx.fill();
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
-        ctx.lineWidth = 2;
-        ctx.stroke();
+  // Save to Story Draft with generated high-res preview thumbnail
+  const handleSaveCover = async () => {
+    if (!activeStoryId) return;
+    setSaveStatus('saving');
+    try {
+      // 1. Generate high-res flattened snapshot to update cover.exportedCoverDataUrl
+      const exportSnapshot = await generateExportDataUrl(0.75);
 
-        ctx.fillStyle = '#f5f5f4';
-        ctx.fillText(badgeStr, width / 2, badgeY);
-        ctx.restore();
-      }
+      // Extract title and author from elements for backward compatibility
+      const titleEl = cover.elements?.find(e => e.textRole === 'title');
+      const authorEl = cover.elements?.find(e => e.textRole === 'author');
+      const subEl = cover.elements?.find(e => e.textRole === 'subtitle');
 
-      if (cover.showGenre !== false && cover.genre) {
-        ctx.save();
-        ctx.font = '600 32px sans-serif';
-        ctx.textAlign = 'center';
-        const genreStr = cover.genre.toUpperCase();
-        const metrics = ctx.measureText(genreStr);
-        const pillW = metrics.width + 60;
-        const pillH = 60;
-        const pillX = (width - pillW) / 2;
-        const genreY = badgeY + 90;
+      const updatedCover: CoverConfig = {
+        ...cover,
+        title: titleEl?.content || cover.title || currentStory?.title || 'Untitled',
+        author: authorEl?.content || cover.author || defaultAuthor,
+        subtitle: subEl?.content || cover.subtitle,
+        exportedCoverDataUrl: exportSnapshot
+      };
 
-        ctx.fillStyle = 'rgba(244, 63, 94, 0.25)';
-        ctx.beginPath();
-        if (typeof ctx.roundRect === 'function') {
-          ctx.roundRect(pillX, genreY - 42, pillW, pillH, 30);
-        } else {
-          ctx.rect(pillX, genreY - 42, pillW, pillH);
-        }
-        ctx.fill();
-        ctx.strokeStyle = 'rgba(244, 63, 94, 0.5)';
-        ctx.lineWidth = 2;
-        ctx.stroke();
-
-        ctx.fillStyle = '#fda4af';
-        ctx.fillText(genreStr, width / 2, genreY);
-        ctx.restore();
-      }
-
-      // 6. Book Title (Wrapped and Centered or Aligned)
-      ctx.save();
-      const fontFam = cover.fontFamily === 'serif' ? 'serif' :
-                      cover.fontFamily === 'mono' ? 'monospace' : 'sans-serif';
-      const fontSty = cover.fontStyle === 'italic' ? 'italic' : 'normal';
-      const fontWt = cover.fontWeight === 'normal' ? '400' :
-                     cover.fontWeight === 'medium' ? '500' : 'bold';
-
-      const scaledTitleSize = Math.round((cover.titleSize || 2.4) * 44);
-      ctx.font = `${fontSty} ${fontWt} ${scaledTitleSize}px ${fontFam}`;
-      ctx.fillStyle = cover.titleColor || '#f43f5e';
-      ctx.shadowColor = 'rgba(0, 0, 0, 0.9)';
-      ctx.shadowBlur = 30;
-      ctx.shadowOffsetX = 0;
-      ctx.shadowOffsetY = 6;
-
-      const titleAlign = cover.textAlign || 'center';
-      ctx.textAlign = titleAlign as CanvasTextAlign;
-      const textX = titleAlign === 'left' ? 140 :
-                    titleAlign === 'right' ? width - 140 : width / 2;
-
-      // Word wrapping for title
-      const words = (cover.title || 'Untitled Masterpiece').split(' ');
-      let currentLine = '';
-      const lines: string[] = [];
-      const maxLineWidth = width - 280;
-
-      for (let i = 0; i < words.length; i++) {
-        const testLine = currentLine ? `${currentLine} ${words[i]}` : words[i];
-        const testMetrics = ctx.measureText(testLine);
-        if (testMetrics.width > maxLineWidth && i > 0) {
-          lines.push(currentLine);
-          currentLine = words[i];
-        } else {
-          currentLine = testLine;
-        }
-      }
-      lines.push(currentLine);
-
-      const titleCenterY = Math.round((height * (cover.titlePosition?.y || 40)) / 100);
-      const lineHeight = scaledTitleSize * 1.25;
-      const totalBlockHeight = lines.length * lineHeight;
-      const startY = titleCenterY - totalBlockHeight / 2 + scaledTitleSize * 0.8;
-
-      lines.forEach((line, index) => {
-        ctx.fillText(line, textX, startY + index * lineHeight);
-      });
-      ctx.restore();
-
-      // 7. Subtitle
-      let subY = startY + lines.length * lineHeight + 40;
-      if (cover.subtitle) {
-        ctx.save();
-        const scaledSubSize = Math.round((cover.subtitleSize || 1.1) * 36);
-        ctx.font = `500 ${scaledSubSize}px sans-serif`;
-        ctx.fillStyle = cover.subtitleColor || '#e4e4e7';
-        ctx.textAlign = (cover.textAlign || 'center') as CanvasTextAlign;
-        ctx.shadowColor = 'rgba(0,0,0,0.8)';
-        ctx.shadowBlur = 20;
-        ctx.fillText(cover.subtitle, textX, subY);
-        ctx.restore();
-        subY += scaledSubSize + 30;
-      }
-
-      // 8. Tagline
-      if (cover.tagline) {
-        ctx.save();
-        ctx.font = 'italic 400 36px serif';
-        ctx.fillStyle = '#fde68a';
-        ctx.textAlign = (cover.textAlign || 'center') as CanvasTextAlign;
-        ctx.shadowColor = 'rgba(0,0,0,0.8)';
-        ctx.shadowBlur = 15;
-        ctx.fillText(`“${cover.tagline}”`, textX, subY + 20);
-        ctx.restore();
-      }
-
-      // 9. Author Signature Footer
-      ctx.save();
-      const authorY = Math.round((height * (cover.authorPosition?.y || 88)) / 100);
-      ctx.font = 'bold 50px sans-serif';
-      ctx.fillStyle = cover.authorColor || '#e4e4e7';
-      ctx.textAlign = (cover.textAlign || 'center') as CanvasTextAlign;
-      ctx.shadowColor = 'rgba(0, 0, 0, 0.9)';
-      ctx.shadowBlur = 25;
-      ctx.fillText((cover.author || 'Author').toUpperCase(), textX, authorY);
-      ctx.restore();
-
-      // 10. Generate and trigger download
-      const dataUrl = canvas.toDataURL('image/png', 1.0);
-      const link = document.createElement('a');
-      const safeTitle = (cover.title || 'novel').toLowerCase().replace(/[^a-z0-9]+/g, '_');
-      link.download = `${safeTitle}_cover_1600x2400.png`;
-      link.href = dataUrl;
-      link.click();
-
-      // Also persist high-res preview URL to the cover draft
-      onSaveCover(activeStoryId, { ...cover, exportedCoverDataUrl: dataUrl });
-      showNotice('1600 × 2400 high-res PNG exported successfully!');
+      await onSaveCover(activeStoryId, updatedCover);
+      setCover(updatedCover);
+      setSaveStatus('saved');
+      showToast('Cover saved to story manuscript successfully!');
     } catch (err: any) {
-      console.error('[CoverStudio] Export failed:', err);
-      showNotice('Export failed: ' + (err?.message || 'Check browser canvas memory'));
+      console.error('[CoverStudio] Save error:', err);
+      setSaveStatus('error');
+      showToast(`Error saving cover: ${err?.message || 'Check storage'}`);
+    }
+  };
+
+  // High-Resolution PNG Export Trigger
+  const handleExportPNG = async () => {
+    setIsExporting(true);
+    try {
+      const dataUrl = await generateExportDataUrl(exportScale);
+      const link = document.createElement('a');
+      const sanitizedTitle = (cover.title || currentStory?.title || 'Book-Cover')
+        .replace(/[^a-zA-Z0-9_-]/g, '_')
+        .toLowerCase();
+      link.download = `${sanitizedTitle}_${cover.width}x${cover.height}_cover.png`;
+      link.href = dataUrl;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      showToast(`Cover exported at ${cover.width! * exportScale}×${cover.height! * exportScale}px PNG!`);
+    } catch (err: any) {
+      alert(`Export error: ${err?.message || 'Failed to render high-resolution canvas'}`);
     } finally {
       setIsExporting(false);
     }
   };
 
+  // -------------------------------------------------------------
+  // Pointer-based Interactive Dragging
+  // -------------------------------------------------------------
+  const handleCanvasPointerDown = (e: React.PointerEvent, elementId: string) => {
+    e.stopPropagation();
+    const el = cover.elements?.find(item => item.id === elementId);
+    if (!el || el.locked) {
+      setSelectedElementId(elementId);
+      return;
+    }
+
+    setSelectedElementId(elementId);
+    isDraggingRef.current = true;
+    dragStartPos.current = {
+      x: e.clientX,
+      y: e.clientY,
+      elX: el.x,
+      elY: el.y
+    };
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      if (!isDraggingRef.current || !canvasElementRef.current) return;
+      const rect = canvasElementRef.current.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) return;
+
+      const deltaXPercent = ((moveEvent.clientX - dragStartPos.current.x) / rect.width) * 100;
+      const deltaYPercent = ((moveEvent.clientY - dragStartPos.current.y) / rect.height) * 100;
+
+      let newX = Math.round((dragStartPos.current.elX + deltaXPercent) * 10) / 10;
+      let newY = Math.round((dragStartPos.current.elY + deltaYPercent) * 10) / 10;
+
+      // Center snapping assistance
+      if (showGuides && Math.abs(newX + (el.width / 2) - 50) < 1.5) {
+        newX = 50 - (el.width / 2);
+      }
+
+      updateCover(prev => ({
+        ...prev,
+        elements: (prev.elements || []).map(item => item.id === elementId ? {
+          ...item,
+          x: Math.max(0, Math.min(100 - (item.width || 10), newX)),
+          y: Math.max(0, Math.min(95, newY))
+        } : item)
+      }), false);
+    };
+
+    const handlePointerUp = () => {
+      isDraggingRef.current = false;
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+      // Record history step on drag release
+      setHistory(h => [...h.slice(-25), cover]);
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+  };
+
+  // Aspect ratio helper
+  const aspectRatioClass = cover.height === cover.width
+    ? 'aspect-square'
+    : cover.height === 1600 && cover.width === 1200
+    ? 'aspect-[3/4]'
+    : 'aspect-[2/3]';
+
   return (
-    <div className="min-h-screen bg-transparent text-[#f5f5f4] flex flex-col relative z-10">
+    <div className="min-h-screen bg-[#09090b] text-[#f5f5f4] flex flex-col relative select-none font-sans overflow-hidden">
       
-      {/* Studio Header Bar */}
-      <header className="h-16 border-b border-[#292524] bg-[#0c0a09]/90 backdrop-blur-md px-4 sm:px-6 flex items-center justify-between sticky top-0 z-40">
+      {/* 1. Compact Pro Editorial Toolbar */}
+      <header className="h-14 border-b border-[#292524] bg-[#0c0a09]/95 backdrop-blur-md px-4 flex items-center justify-between gap-4 z-40">
+        
+        {/* Left: Back & Story Dropdown */}
         <div className="flex items-center gap-3">
-          <button 
-            onClick={onBack} 
-            className="p-2 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-300 transition-colors flex items-center gap-1.5 text-xs font-medium"
+          <button
+            onClick={onBack}
+            className="p-1.5 rounded-lg bg-stone-900 hover:bg-stone-800 text-stone-300 text-xs font-medium flex items-center gap-1.5 transition-colors border border-stone-800"
+            title="Exit Cover Studio"
           >
             <ArrowLeft className="w-4 h-4" />
-            <span className="hidden sm:inline">Back</span>
+            <span className="hidden sm:inline">Exit</span>
           </button>
-          <div>
-            <h1 className="text-base sm:text-lg font-serif font-bold text-stone-100 flex items-center gap-2">
-              <span>Book Cover Designer</span>
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-rose-950 text-rose-300 border border-rose-800">
-                1600×2400
-              </span>
-            </h1>
-            <p className="text-[11px] text-stone-400 hidden sm:block">Design bespoke cover artwork for your publication</p>
+
+          <div className="h-4 w-px bg-stone-800 hidden sm:block" />
+
+          {/* Story Selector */}
+          <div className="flex items-center gap-2">
+            <BookOpen className="w-4 h-4 text-emerald-400 hidden sm:block" />
+            <select
+              value={activeStoryId}
+              onChange={(e) => setActiveStoryId(e.target.value)}
+              className="bg-[#141210] border border-stone-800 rounded-lg px-2.5 py-1 text-xs text-stone-200 focus:outline-none focus:border-emerald-600 max-w-[160px] sm:max-w-[220px] truncate"
+            >
+              {stories.map(s => (
+                <option key={s.id} value={s.id}>
+                  {s.title || 'Untitled Story'}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          {/* Target Story Selector */}
-          <select
-            value={activeStoryId}
-            onChange={(e) => setActiveStoryId(e.target.value)}
-            className="bg-[#1c1917] border border-stone-800 rounded-xl px-3 py-1.5 text-xs text-stone-200 focus:outline-none max-w-[130px] sm:max-w-[200px] truncate"
-          >
-            {stories.map(s => (
-              <option key={s.id} value={s.id}>{s.title}</option>
-            ))}
-          </select>
+        {/* Center: History, Zoom & Viewport Controls */}
+        <div className="flex items-center gap-1 sm:gap-2">
+          {/* Undo / Redo */}
+          <div className="flex items-center bg-[#141210] border border-stone-800 rounded-lg p-0.5">
+            <button
+              onClick={handleUndo}
+              disabled={history.length === 0}
+              className="p-1.5 rounded hover:bg-stone-800 text-stone-400 hover:text-stone-100 disabled:opacity-30 transition-colors"
+              title="Undo (Ctrl+Z)"
+            >
+              <Undo className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={handleRedo}
+              disabled={redoStack.length === 0}
+              className="p-1.5 rounded hover:bg-stone-800 text-stone-400 hover:text-stone-100 disabled:opacity-30 transition-colors"
+              title="Redo (Ctrl+Y)"
+            >
+              <Redo className="w-3.5 h-3.5" />
+            </button>
+          </div>
 
-          {/* Undo Button */}
-          <button
-            onClick={handleUndo}
-            disabled={history.length === 0}
-            className="p-2 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-300 disabled:opacity-40 transition-colors"
-            title="Undo recent change"
-          >
-            <Undo className="w-3.5 h-3.5" />
-          </button>
+          <div className="h-4 w-px bg-stone-800 hidden md:block" />
 
-          {/* Reset Button */}
-          <button
-            onClick={handleReset}
-            className="p-2 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-300 transition-colors"
-            title="Reset to story default"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-          </button>
+          {/* Zoom Controls */}
+          <div className="hidden sm:flex items-center bg-[#141210] border border-stone-800 rounded-lg p-0.5 text-xs text-stone-400">
+            <button
+              onClick={() => setZoomLevel(z => Math.max(30, z - 10))}
+              className="p-1.5 rounded hover:bg-stone-800 hover:text-white transition-colors"
+              title="Zoom Out"
+            >
+              <ZoomOut className="w-3.5 h-3.5" />
+            </button>
+            <span className="px-2 font-mono text-[11px] text-stone-300 min-w-[42px] text-center">
+              {zoomLevel}%
+            </span>
+            <button
+              onClick={() => setZoomLevel(z => Math.min(180, z + 10))}
+              className="p-1.5 rounded hover:bg-stone-800 hover:text-white transition-colors"
+              title="Zoom In"
+            >
+              <ZoomIn className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => setZoomLevel(100)}
+              className="px-2 py-1 rounded text-[10px] font-mono hover:bg-stone-800 hover:text-white border-l border-stone-800"
+              title="Reset Zoom to 100%"
+            >
+              Fit
+            </button>
+          </div>
 
-          {/* Toggle Preview Button */}
+          {/* Guides Toggle */}
           <button
-            onClick={() => setPreviewMode(!previewMode)}
-            className={`px-3 py-1.5 rounded-xl text-xs font-medium flex items-center gap-1.5 transition-colors ${
-              previewMode ? 'bg-amber-500/20 border border-amber-500 text-amber-300' : 'bg-stone-800 text-stone-300 hover:bg-stone-700'
+            onClick={() => setShowGuides(!showGuides)}
+            className={`p-1.5 rounded-lg border text-xs flex items-center gap-1 transition-colors ${
+              showGuides ? 'bg-emerald-950/60 border-emerald-800 text-emerald-300' : 'bg-[#141210] border-stone-800 text-stone-400'
             }`}
+            title="Toggle Center Alignment Guides"
           >
-            <Eye className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">{previewMode ? 'Edit Mode' : 'Preview'}</span>
+            <Grid className="w-3.5 h-3.5" />
+            <span className="hidden xl:inline">Guides</span>
           </button>
 
-          {/* Save Draft Button */}
+          {/* Safe Margins Toggle */}
           <button
-            onClick={handleSaveDraft}
-            className="px-3.5 py-1.5 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs font-medium flex items-center gap-1.5 border border-stone-700 transition-colors"
+            onClick={() => setShowSafeMargins(!showSafeMargins)}
+            className={`p-1.5 rounded-lg border text-xs flex items-center gap-1 transition-colors ${
+              showSafeMargins ? 'bg-emerald-950/60 border-emerald-800 text-emerald-300' : 'bg-[#141210] border-stone-800 text-stone-400'
+            }`}
+            title="Toggle Safe Text Margins"
           >
-            <Save className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Apply Cover</span>
+            <Frame className="w-3.5 h-3.5" />
+            <span className="hidden xl:inline">Margins</span>
+          </button>
+        </div>
+
+        {/* Right: Preview, Save & Export */}
+        <div className="flex items-center gap-2">
+          
+          {/* 3D Mockup / Reader Preview */}
+          <button
+            onClick={() => setPreviewMode(p => p === '3d-mockup' ? 'none' : '3d-mockup')}
+            className={`px-3 py-1.5 rounded-lg border text-xs font-medium flex items-center gap-1.5 transition-colors ${
+              previewMode === '3d-mockup'
+                ? 'bg-amber-950/80 border-amber-700 text-amber-300 shadow'
+                : 'bg-[#141210] border-stone-800 text-stone-300 hover:bg-stone-800'
+            }`}
+            title="3D Book Preview"
+          >
+            <BookOpen className="w-3.5 h-3.5 text-amber-400" />
+            <span className="hidden md:inline">3D Mockup</span>
           </button>
 
-          {/* Export 1600x2400 PNG Button */}
+          {/* Save Status & Button */}
+          <button
+            onClick={handleSaveCover}
+            disabled={saveStatus === 'saving'}
+            className="px-3.5 py-1.5 rounded-lg bg-emerald-800 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-medium flex items-center gap-1.5 transition-colors shadow-md"
+            title="Save cover to story manuscript"
+          >
+            {saveStatus === 'saving' ? (
+              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Save className="w-3.5 h-3.5" />
+            )}
+            <span>{saveStatus === 'saving' ? 'Saving...' : saveStatus === 'saved' ? 'Saved' : 'Save Cover'}</span>
+          </button>
+
+          {/* High-Resolution PNG Export */}
           <button
             onClick={handleExportPNG}
             disabled={isExporting}
-            className="px-4 py-1.5 rounded-xl bg-gradient-to-r from-rose-600 to-amber-600 hover:from-rose-500 hover:to-amber-500 text-white text-xs font-medium flex items-center gap-1.5 shadow-md shadow-rose-950/40 transition-all disabled:opacity-50"
+            className="px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-amber-600 via-rose-600 to-amber-700 hover:from-amber-500 hover:to-rose-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-all shadow-lg shadow-rose-950/40 disabled:opacity-50"
+            title="Download high-resolution print-ready PNG"
           >
             <Download className="w-3.5 h-3.5" />
-            <span>{isExporting ? 'Exporting...' : 'Export 1600×2400'}</span>
+            <span className="hidden sm:inline">Export PNG</span>
           </button>
+
         </div>
       </header>
 
-      {/* Notice Banner */}
-      {notice && (
-        <div className="bg-emerald-950/80 border-b border-emerald-800/80 text-emerald-200 text-xs py-2 px-6 text-center font-medium transition-all animate-fade-in flex items-center justify-center gap-2">
+      {/* Toast Notification */}
+      {toastMessage && (
+        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-50 bg-[#181614] border border-emerald-700/60 text-emerald-200 px-4 py-2 rounded-xl text-xs font-medium shadow-2xl backdrop-blur-md flex items-center gap-2 animate-fade-in">
           <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
-          <span>{notice}</span>
+          <span>{toastMessage}</span>
         </div>
       )}
 
-      {/* Main Studio Body */}
-      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
+      {/* 2. Main Studio Workspace: Left Sidebar, Canvas Center, Right Inspector */}
+      <div className="flex-1 flex overflow-hidden">
         
-        {/* Left Side: Controls & Customization Panel (Hidden in pure preview mode) */}
-        {!previewMode && (
-          <aside className="w-full lg:w-[420px] bg-[#0c0a09]/90 backdrop-blur-md border-r border-[#292524] flex flex-col h-[400px] lg:h-auto overflow-hidden">
+        {/* Left-Hand Panel: Templates, Elements, Artwork, Typography, Layers */}
+        <aside className="w-80 border-r border-[#292524] bg-[#0c0a09]/90 backdrop-blur-md flex flex-col flex-shrink-0 z-20">
+          
+          {/* Navigation Tabs */}
+          <div className="grid grid-cols-5 border-b border-[#292524] text-[11px] font-medium text-stone-400">
+            <button
+              onClick={() => setLeftTab('templates')}
+              className={`py-3 flex flex-col items-center gap-1 border-b-2 transition-colors ${
+                leftTab === 'templates' ? 'border-emerald-500 text-emerald-300 bg-emerald-950/20' : 'border-transparent hover:text-stone-200'
+              }`}
+            >
+              <Layout className="w-4 h-4" />
+              <span>Templates</span>
+            </button>
+            <button
+              onClick={() => setLeftTab('elements')}
+              className={`py-3 flex flex-col items-center gap-1 border-b-2 transition-colors ${
+                leftTab === 'elements' ? 'border-emerald-500 text-emerald-300 bg-emerald-950/20' : 'border-transparent hover:text-stone-200'
+              }`}
+            >
+              <Type className="w-4 h-4" />
+              <span>Text</span>
+            </button>
+            <button
+              onClick={() => setLeftTab('artwork')}
+              className={`py-3 flex flex-col items-center gap-1 border-b-2 transition-colors ${
+                leftTab === 'artwork' ? 'border-emerald-500 text-emerald-300 bg-emerald-950/20' : 'border-transparent hover:text-stone-200'
+              }`}
+            >
+              <ImageIcon className="w-4 h-4" />
+              <span>Artwork</span>
+            </button>
+            <button
+              onClick={() => setLeftTab('typography')}
+              className={`py-3 flex flex-col items-center gap-1 border-b-2 transition-colors ${
+                leftTab === 'typography' ? 'border-emerald-500 text-emerald-300 bg-emerald-950/20' : 'border-transparent hover:text-stone-200'
+              }`}
+            >
+              <Palette className="w-4 h-4" />
+              <span>Theme</span>
+            </button>
+            <button
+              onClick={() => setLeftTab('layers')}
+              className={`py-3 flex flex-col items-center gap-1 border-b-2 transition-colors ${
+                leftTab === 'layers' ? 'border-emerald-500 text-emerald-300 bg-emerald-950/20' : 'border-transparent hover:text-stone-200'
+              }`}
+            >
+              <Layers className="w-4 h-4" />
+              <span>Layers</span>
+            </button>
+          </div>
+
+          {/* Left Panel Body */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-5">
             
-            {/* Category Navigation Tabs */}
-            <div className="flex border-b border-[#292524] bg-[#141210]/60 p-1.5 gap-1 text-xs">
-              <button
-                onClick={() => setActiveTab('typography')}
-                className={`flex-1 py-2 rounded-lg flex items-center justify-center gap-1.5 font-medium transition-colors ${
-                  activeTab === 'typography' ? 'bg-rose-950/80 text-rose-200 border border-rose-800/60' : 'text-stone-400 hover:text-stone-200'
-                }`}
-              >
-                <Type className="w-3.5 h-3.5" />
-                <span>Text</span>
-              </button>
-
-              <button
-                onClick={() => setActiveTab('background')}
-                className={`flex-1 py-2 rounded-lg flex items-center justify-center gap-1.5 font-medium transition-colors ${
-                  activeTab === 'background' ? 'bg-rose-950/80 text-rose-200 border border-rose-800/60' : 'text-stone-400 hover:text-stone-200'
-                }`}
-              >
-                <Palette className="w-3.5 h-3.5" />
-                <span>Artwork</span>
-              </button>
-
-              <button
-                onClick={() => setActiveTab('overlay')}
-                className={`flex-1 py-2 rounded-lg flex items-center justify-center gap-1.5 font-medium transition-colors ${
-                  activeTab === 'overlay' ? 'bg-rose-950/80 text-rose-200 border border-rose-800/60' : 'text-stone-400 hover:text-stone-200'
-                }`}
-              >
-                <Layers className="w-3.5 h-3.5" />
-                <span>Contrast</span>
-              </button>
-
-              <button
-                onClick={() => setActiveTab('details')}
-                className={`flex-1 py-2 rounded-lg flex items-center justify-center gap-1.5 font-medium transition-colors ${
-                  activeTab === 'details' ? 'bg-rose-950/80 text-rose-200 border border-rose-800/60' : 'text-stone-400 hover:text-stone-200'
-                }`}
-              >
-                <Sliders className="w-3.5 h-3.5" />
-                <span>Details</span>
-              </button>
-            </div>
-
-            {/* Scrollable Control Panes */}
-            <div className="flex-1 overflow-y-auto p-5 space-y-6">
-              
-              {/* --- TAB 1: TYPOGRAPHY --- */}
-              {activeTab === 'typography' && (
-                <div className="space-y-5">
-                  <div>
-                    <label className="block text-[11px] font-semibold text-stone-400 uppercase tracking-wider mb-1">
-                      Book Title
-                    </label>
-                    <input
-                      type="text"
-                      value={cover.title}
-                      onChange={(e) => updateCoverWithHistory(c => ({ ...c, title: e.target.value }))}
-                      className="w-full bg-[#1c1917] border border-stone-800 rounded-xl px-3.5 py-2 text-xs text-stone-200 focus:outline-none focus:border-rose-500"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-semibold text-stone-400 uppercase tracking-wider mb-1">
-                      Subtitle (Optional)
-                    </label>
-                    <input
-                      type="text"
-                      value={cover.subtitle || ''}
-                      placeholder="e.g. A Chronicle of the Lost Realm"
-                      onChange={(e) => updateCoverWithHistory(c => ({ ...c, subtitle: e.target.value }))}
-                      className="w-full bg-[#1c1917] border border-stone-800 rounded-xl px-3.5 py-2 text-xs text-stone-200 focus:outline-none focus:border-rose-500"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-semibold text-stone-400 uppercase tracking-wider mb-1">
-                      Author Name (Defaults to Author Profile)
-                    </label>
-                    <input
-                      type="text"
-                      value={cover.author}
-                      onChange={(e) => updateCoverWithHistory(c => ({ ...c, author: e.target.value }))}
-                      className="w-full bg-[#1c1917] border border-stone-800 rounded-xl px-3.5 py-2 text-xs text-stone-200 focus:outline-none focus:border-rose-500"
-                    />
-                  </div>
-
-                  {/* Font Family Selection */}
-                  <div>
-                    <label className="block text-[11px] font-semibold text-stone-400 uppercase tracking-wider mb-2">
-                      Font Family
-                    </label>
-                    <div className="grid grid-cols-4 gap-2">
-                      {[
-                        { id: 'serif', label: 'Serif' },
-                        { id: 'sans', label: 'Sans' },
-                        { id: 'mono', label: 'Mono' },
-                        { id: 'display', label: 'Display' }
-                      ].map(f => (
-                        <button
-                          key={f.id}
-                          onClick={() => updateCoverWithHistory(c => ({ ...c, fontFamily: f.id as any }))}
-                          className={`py-2 rounded-xl text-xs font-medium border transition-colors ${
-                            cover.fontFamily === f.id
-                              ? 'bg-rose-950/80 border-rose-700 text-rose-200'
-                              : 'bg-[#1c1917] border-stone-800 text-stone-400 hover:text-stone-200'
-                          }`}
-                        >
-                          {f.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Alignment & Style */}
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-[11px] font-semibold text-stone-400 uppercase tracking-wider mb-2">
-                        Alignment
-                      </label>
-                      <div className="flex rounded-xl bg-[#1c1917] border border-stone-800 p-1">
-                        {(['left', 'center', 'right'] as const).map(align => (
-                          <button
-                            key={align}
-                            onClick={() => updateCoverWithHistory(c => ({ ...c, textAlign: align }))}
-                            className={`flex-1 py-1 rounded-lg text-xs capitalize transition-colors ${
-                              (cover.textAlign || 'center') === align
-                                ? 'bg-stone-800 text-stone-100 font-medium'
-                                : 'text-stone-400 hover:text-stone-200'
-                            }`}
-                          >
-                            {align}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-semibold text-stone-400 uppercase tracking-wider mb-2">
-                        Style & Weight
-                      </label>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => updateCoverWithHistory(c => ({ 
-                            ...c, 
-                            fontStyle: c.fontStyle === 'italic' ? 'normal' : 'italic' 
-                          }))}
-                          className={`flex-1 py-1.5 rounded-xl border text-xs font-serif italic transition-colors ${
-                            cover.fontStyle === 'italic' ? 'bg-rose-950/80 border-rose-700 text-rose-200' : 'bg-[#1c1917] border-stone-800 text-stone-400'
-                          }`}
-                        >
-                          Italic
-                        </button>
-                        <button
-                          onClick={() => updateCoverWithHistory(c => ({ 
-                            ...c, 
-                            fontWeight: c.fontWeight === 'bold' ? 'normal' : 'bold' 
-                          }))}
-                          className={`flex-1 py-1.5 rounded-xl border text-xs font-sans font-bold transition-colors ${
-                            cover.fontWeight === 'bold' ? 'bg-rose-950/80 border-rose-700 text-rose-200' : 'bg-[#1c1917] border-stone-800 text-stone-400'
-                          }`}
-                        >
-                          Bold
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Font Size Sliders */}
-                  <div className="space-y-3 pt-2">
-                    <div>
-                      <div className="flex justify-between text-xs text-stone-400 mb-1">
-                        <span>Title Size</span>
-                        <span className="font-mono">{cover.titleSize.toFixed(1)}rem</span>
-                      </div>
-                      <input
-                        type="range"
-                        min="1.4"
-                        max="4.0"
-                        step="0.1"
-                        value={cover.titleSize}
-                        onChange={(e) => updateCoverWithHistory(c => ({ ...c, titleSize: parseFloat(e.target.value) }))}
-                        className="w-full accent-rose-500"
-                      />
-                    </div>
-
-                    <div>
-                      <div className="flex justify-between text-xs text-stone-400 mb-1">
-                        <span>Subtitle Size</span>
-                        <span className="font-mono">{(cover.subtitleSize || 1.1).toFixed(1)}rem</span>
-                      </div>
-                      <input
-                        type="range"
-                        min="0.8"
-                        max="2.0"
-                        step="0.1"
-                        value={cover.subtitleSize || 1.1}
-                        onChange={(e) => updateCoverWithHistory(c => ({ ...c, subtitleSize: parseFloat(e.target.value) }))}
-                        className="w-full accent-rose-500"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Color Palettes */}
-                  <div>
-                    <label className="block text-[11px] font-semibold text-stone-400 uppercase tracking-wider mb-2">
-                      Color Schemes
-                    </label>
-                    <div className="grid grid-cols-3 gap-2">
-                      {COLOR_PALETTES.map((pal, idx) => (
-                        <button
-                          key={idx}
-                          onClick={() => updateCoverWithHistory(c => ({
-                            ...c,
-                            titleColor: pal.title,
-                            subtitleColor: pal.subtitle,
-                            authorColor: pal.author
-                          }))}
-                          className="p-2 rounded-xl bg-[#1c1917] border border-stone-800 hover:border-stone-700 flex flex-col items-center gap-1 text-[11px] text-stone-300"
-                        >
-                          <div className="flex gap-1">
-                            <span className="w-3.5 h-3.5 rounded-full" style={{ backgroundColor: pal.title }} />
-                            <span className="w-3.5 h-3.5 rounded-full" style={{ backgroundColor: pal.subtitle }} />
-                            <span className="w-3.5 h-3.5 rounded-full" style={{ backgroundColor: pal.author }} />
-                          </div>
-                          <span>{pal.name}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
+            {/* TAB 1: TEMPLATES */}
+            {leftTab === 'templates' && (
+              <div className="space-y-4">
+                <div>
+                  <h3 className="text-xs uppercase font-mono tracking-wider text-stone-400 mb-1">Publishing Layouts</h3>
+                  <p className="text-[11px] text-stone-500">
+                    Fully editable starting templates. Swap elements, fonts and colors freely.
+                  </p>
                 </div>
-              )}
 
-              {/* --- TAB 2: BACKGROUND & ARTWORK --- */}
-              {activeTab === 'background' && (
-                <div className="space-y-6">
-                  
-                  {/* Background Mode Switch */}
-                  <div>
-                    <label className="block text-[11px] font-semibold text-stone-400 uppercase tracking-wider mb-2">
-                      Artwork Source
-                    </label>
+                <div className="space-y-3">
+                  {TEMPLATES.map(tpl => (
+                    <div
+                      key={tpl.id}
+                      onClick={() => handleApplyTemplate(tpl)}
+                      className="p-3.5 rounded-xl border border-stone-800 hover:border-emerald-700/60 bg-[#141210] hover:bg-[#1a1715] cursor-pointer transition-all group shadow-md"
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs font-semibold text-stone-100 group-hover:text-emerald-300 transition-colors">
+                          {tpl.name}
+                        </span>
+                        <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-stone-800 text-stone-300">
+                          {tpl.genreTag}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-stone-400 leading-relaxed font-light">
+                        {tpl.description}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* TAB 2: TEXT & ELEMENTS */}
+            {leftTab === 'elements' && (
+              <div className="space-y-6">
+                <div>
+                  <h3 className="text-xs uppercase font-mono tracking-wider text-stone-400 mb-1">Add Typography Elements</h3>
+                  <p className="text-[11px] text-stone-500">
+                    Click to place new text layers directly onto the interactive canvas.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 gap-2.5">
+                  <button
+                    onClick={() => handleAddElement('text', { name: 'Book Title', textRole: 'title', content: currentStory?.title || 'Book Title', fontSize: 44, fontWeight: 700 })}
+                    className="p-3 rounded-xl bg-[#141210] border border-stone-800 hover:border-emerald-600/60 flex items-center justify-between text-left group transition-all"
+                  >
+                    <div>
+                      <div className="text-sm font-serif font-bold text-stone-100">Add Book Title</div>
+                      <div className="text-[10px] text-stone-500">Prominent main title block</div>
+                    </div>
+                    <Plus className="w-4 h-4 text-stone-400 group-hover:text-emerald-400" />
+                  </button>
+
+                  <button
+                    onClick={() => handleAddElement('text', { name: 'Author Name', textRole: 'author', content: currentStory?.authorName || defaultAuthor, fontSize: 20, fontWeight: 600, letterSpacing: 5, textTransform: 'uppercase' })}
+                    className="p-3 rounded-xl bg-[#141210] border border-stone-800 hover:border-emerald-600/60 flex items-center justify-between text-left group transition-all"
+                  >
+                    <div>
+                      <div className="text-xs font-mono font-bold tracking-wider text-stone-200">ADD AUTHOR NAME</div>
+                      <div className="text-[10px] text-stone-500">Signature footer placement</div>
+                    </div>
+                    <Plus className="w-4 h-4 text-stone-400 group-hover:text-emerald-400" />
+                  </button>
+
+                  <button
+                    onClick={() => handleAddElement('text', { name: 'Subtitle', textRole: 'subtitle', content: 'A Compelling Novel', fontSize: 16, fontStyle: 'italic' })}
+                    className="p-3 rounded-xl bg-[#141210] border border-stone-800 hover:border-emerald-600/60 flex items-center justify-between text-left group transition-all"
+                  >
+                    <div>
+                      <div className="text-xs font-serif italic text-stone-300">Add Subtitle / Volume</div>
+                      <div className="text-[10px] text-stone-500">Descriptive subtitle or series info</div>
+                    </div>
+                    <Plus className="w-4 h-4 text-stone-400 group-hover:text-emerald-400" />
+                  </button>
+
+                  <button
+                    onClick={() => handleAddElement('text', { name: 'Tagline', textRole: 'tagline', content: '“An unmissable literary tour de force.”', fontSize: 14, fontStyle: 'italic', color: '#fed7aa' })}
+                    className="p-3 rounded-xl bg-[#141210] border border-stone-800 hover:border-emerald-600/60 flex items-center justify-between text-left group transition-all"
+                  >
+                    <div>
+                      <div className="text-xs font-sans text-amber-200/90">Add Tagline or Review Quote</div>
+                      <div className="text-[10px] text-stone-500">Hook sentence or praise</div>
+                    </div>
+                    <Plus className="w-4 h-4 text-stone-400 group-hover:text-emerald-400" />
+                  </button>
+                </div>
+
+                <div>
+                  <h3 className="text-xs uppercase font-mono tracking-wider text-stone-400 mb-2">Shapes & Decorative Lines</h3>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => handleAddElement('frame', { name: 'Gold Border Frame', strokeColor: '#d4af37', strokeWidth: 1.5, opacity: 0.5 })}
+                      className="p-2.5 rounded-lg bg-[#141210] border border-stone-800 hover:border-emerald-600/60 text-xs text-stone-300 flex items-center gap-2"
+                    >
+                      <Frame className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Border Frame</span>
+                    </button>
+
+                    <button
+                      onClick={() => handleAddElement('line', { name: 'Divider Accent', fillColor: '#d4af37', height: 2, width: 40 })}
+                      className="p-2.5 rounded-lg bg-[#141210] border border-stone-800 hover:border-emerald-600/60 text-xs text-stone-300 flex items-center gap-2"
+                    >
+                      <Minus className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Divider Line</span>
+                    </button>
+
+                    <button
+                      onClick={() => handleAddElement('shape', { name: 'Banner Box', shapeType: 'rectangle', fillColor: '#1c1917', strokeColor: '#d4af37', strokeWidth: 1 })}
+                      className="p-2.5 rounded-lg bg-[#141210] border border-stone-800 hover:border-emerald-600/60 text-xs text-stone-300 flex items-center gap-2"
+                    >
+                      <Square className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Banner Box</span>
+                    </button>
+
+                    <button
+                      onClick={() => handleAddElement('shape', { name: 'Seal Emblem', shapeType: 'circle', fillColor: '#2a1a0f', strokeColor: '#f59e0b', width: 24, height: 24 })}
+                      className="p-2.5 rounded-lg bg-[#141210] border border-stone-800 hover:border-emerald-600/60 text-xs text-stone-300 flex items-center gap-2"
+                    >
+                      <Circle className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Circle Seal</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* TAB 3: ARTWORK & IMAGES */}
+            {leftTab === 'artwork' && (
+              <div className="space-y-6">
+                <div>
+                  <h3 className="text-xs uppercase font-mono tracking-wider text-stone-400 mb-1">Cover Artwork & Uploads</h3>
+                  <p className="text-[11px] text-stone-500">
+                    Upload your own illustrations or select high-resolution archival textures.
+                  </p>
+                </div>
+
+                {/* Upload Button */}
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleUploadImageFile}
+                  accept="image/png,image/jpeg,image/webp"
+                  className="hidden"
+                />
+
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="w-full py-3.5 px-4 rounded-xl border border-dashed border-emerald-700/60 bg-emerald-950/20 hover:bg-emerald-950/40 text-emerald-300 text-xs font-medium flex items-center justify-center gap-2 transition-all shadow-inner group"
+                >
+                  <Upload className="w-4 h-4 group-hover:-translate-y-0.5 transition-transform" />
+                  <span>Upload Artwork from Device (PNG, JPG)</span>
+                </button>
+
+                {/* User's Uploaded Images */}
+                {userUploadedImages.length > 0 && (
+                  <div className="space-y-2">
+                    <span className="text-xs font-mono text-stone-400 uppercase tracking-wider">Your Uploaded Files</span>
                     <div className="grid grid-cols-3 gap-2">
-                      {(['gradient', 'image', 'color'] as const).map(mode => (
-                        <button
-                          key={mode}
-                          onClick={() => updateCoverWithHistory(c => ({ ...c, bgType: mode }))}
-                          className={`py-2 rounded-xl text-xs font-medium border capitalize transition-colors ${
-                            cover.bgType === mode ? 'bg-rose-950/80 border-rose-700 text-rose-200' : 'bg-[#1c1917] border-stone-800 text-stone-400'
-                          }`}
+                      {userUploadedImages.map((imgUrl, i) => (
+                        <div
+                          key={i}
+                          className="relative aspect-[2/3] rounded-lg overflow-hidden border border-stone-800 hover:border-emerald-500 cursor-pointer group shadow"
                         >
-                          {mode}
-                        </button>
+                          <img src={imgUrl} alt="Uploaded" className="w-full h-full object-cover" />
+                          <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center gap-1.5 transition-opacity p-1 text-[9px]">
+                            <button
+                              onClick={() => updateCover(p => ({ ...p, bgType: 'image', bgImage: imgUrl }))}
+                              className="px-1.5 py-0.5 rounded bg-emerald-700 text-white w-full text-center"
+                            >
+                              Set Background
+                            </button>
+                            <button
+                              onClick={() => handleAddElement('image', { name: 'Uploaded Artwork', src: imgUrl })}
+                              className="px-1.5 py-0.5 rounded bg-stone-800 text-stone-200 w-full text-center"
+                            >
+                              Add Layer
+                            </button>
+                          </div>
+                        </div>
                       ))}
                     </div>
                   </div>
+                )}
 
-                  {/* Device File Upload & Image URL */}
-                  {cover.bgType === 'image' && (
-                    <div className="space-y-4 p-4 rounded-2xl bg-[#1c1917] border border-stone-800">
-                      <div>
-                        <span className="block text-xs font-medium text-stone-200 mb-2">Upload Device Artwork</span>
-                        <input
-                          ref={fileInputRef}
-                          type="file"
-                          accept="image/*"
-                          onChange={handleDeviceUpload}
-                          className="hidden"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => fileInputRef.current?.click()}
-                          className="w-full py-3 rounded-xl border border-dashed border-stone-700 hover:border-rose-500 bg-stone-900/60 text-stone-300 text-xs font-medium flex items-center justify-center gap-2 transition-colors"
-                        >
-                          <Upload className="w-4 h-4 text-rose-400" />
-                          <span>Choose Image from Device</span>
-                        </button>
-                        <p className="text-[10px] text-stone-500 mt-1.5 text-center">Supports PNG, JPG, WebP up to 8MB</p>
-                      </div>
-
-                      <div className="relative flex py-1 items-center">
-                        <div className="flex-grow border-t border-stone-800"></div>
-                        <span className="flex-shrink mx-3 text-stone-500 text-[10px] uppercase font-mono">or link artwork URL</span>
-                        <div className="flex-grow border-t border-stone-800"></div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <input
-                          type="url"
-                          placeholder="https://example.com/cover-artwork.jpg"
-                          value={customUrlInput}
-                          onChange={(e) => {
-                            setCustomUrlInput(e.target.value);
-                            setUrlStatus('idle');
-                          }}
-                          className="w-full bg-[#141210] border border-stone-800 rounded-xl px-3.5 py-2 text-xs text-stone-200 focus:outline-none focus:border-rose-500"
-                        />
-                        
-                        <button
-                          type="button"
-                          onClick={handleValidateAndApplyUrl}
-                          disabled={urlStatus === 'validating'}
-                          className="w-full py-2 bg-stone-800 hover:bg-stone-700 text-stone-200 rounded-xl text-xs font-medium transition-colors"
-                        >
-                          {urlStatus === 'validating' ? 'Verifying...' : 'Validate & Apply URL'}
-                        </button>
-
-                        {urlStatus === 'valid' && (
-                          <div className="p-2 bg-emerald-950/70 border border-emerald-800 rounded-lg text-emerald-300 text-[11px] flex items-center gap-1.5">
-                            <Check className="w-3.5 h-3.5 flex-shrink-0" />
-                            <span>{urlMessage}</span>
-                          </div>
-                        )}
-
-                        {urlStatus === 'invalid' && (
-                          <div className="p-2 bg-rose-950/70 border border-rose-800 rounded-lg text-rose-300 text-[11px] flex items-center gap-1.5">
-                            <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
-                            <span>{urlMessage}</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Gradient Presets */}
-                  {cover.bgType === 'gradient' && (
-                    <div>
-                      <label className="block text-[11px] font-semibold text-stone-400 uppercase tracking-wider mb-2">
-                        Atmospheric Gradients
-                      </label>
-                      <div className="grid grid-cols-2 gap-2">
-                        {GRADIENT_PRESETS.map((grad, idx) => (
+                {/* Curated Background Textures */}
+                <div className="space-y-2">
+                  <span className="text-xs font-mono text-stone-400 uppercase tracking-wider">Archival Textures</span>
+                  <div className="grid grid-cols-2 gap-2">
+                    {CURATED_TEXTURES.map(item => (
+                      <div
+                        key={item.id}
+                        className="relative aspect-[4/3] rounded-lg overflow-hidden border border-stone-800 hover:border-emerald-500 cursor-pointer group shadow"
+                      >
+                        <img src={item.url} alt={item.name} className="w-full h-full object-cover" />
+                        <div className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center gap-1 transition-opacity p-2 text-center">
+                          <span className="text-[10px] font-medium text-white line-clamp-1">{item.name}</span>
                           <button
-                            key={idx}
-                            onClick={() => updateCoverWithHistory(c => ({
-                              ...c,
-                              bgGradient: grad.value
-                            }))}
-                            className="p-3 rounded-xl border border-stone-800 hover:border-rose-800/60 flex items-center gap-2.5 text-left transition-all"
-                            style={{ background: grad.value }}
+                            onClick={() => {
+                              updateCover(p => ({ ...p, bgType: 'image', bgImage: item.url }));
+                              showToast(`Set ${item.name} as background`);
+                            }}
+                            className="px-2 py-0.5 rounded bg-emerald-700 text-white text-[10px]"
                           >
-                            <span className="w-3 h-3 rounded-full border border-white/40 flex-shrink-0" />
-                            <span className="text-xs font-medium text-stone-200 drop-shadow">{grad.name}</span>
+                            Apply BG
                           </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Solid Color Picker */}
-                  {cover.bgType === 'color' && (
-                    <div className="space-y-3">
-                      <label className="block text-[11px] font-semibold text-stone-400 uppercase tracking-wider">
-                        Solid Background Tone
-                      </label>
-                      <div className="flex items-center gap-3 bg-[#1c1917] border border-stone-800 rounded-xl p-3">
-                        <input
-                          type="color"
-                          value={cover.bgColor}
-                          onChange={(e) => updateCoverWithHistory(c => ({ ...c, bgColor: e.target.value }))}
-                          className="w-10 h-10 rounded-lg border-0 cursor-pointer bg-transparent"
-                        />
-                        <div className="flex-1">
-                          <input
-                            type="text"
-                            value={cover.bgColor}
-                            onChange={(e) => updateCoverWithHistory(c => ({ ...c, bgColor: e.target.value }))}
-                            className="bg-[#141210] border border-stone-800 rounded-lg px-3 py-1.5 text-xs font-mono text-stone-200 w-full"
-                          />
                         </div>
                       </div>
-                    </div>
-                  )}
-
+                    ))}
+                  </div>
                 </div>
-              )}
 
-              {/* --- TAB 3: CONTRAST & OVERLAY --- */}
-              {activeTab === 'overlay' && (
-                <div className="space-y-6">
-                  
-                  {/* Pattern Overlay */}
-                  <div>
-                    <label className="block text-[11px] font-semibold text-stone-400 uppercase tracking-wider mb-2">
-                      Texture Overlay
-                    </label>
-                    <div className="grid grid-cols-3 gap-2">
-                      {[
-                        { id: 'stars', label: 'Star Particles' },
-                        { id: 'vignette', label: 'Vignette' },
-                        { id: 'dots', label: 'Micro Dots' },
-                        { id: 'grid', label: 'Fine Grid' },
-                        { id: 'none', label: 'Clean' }
-                      ].map(pat => (
-                        <button
-                          key={pat.id}
-                          onClick={() => updateCoverWithHistory(c => ({ ...c, overlayPattern: pat.id as any }))}
-                          className={`py-2 rounded-xl text-xs font-medium border transition-colors ${
-                            cover.overlayPattern === pat.id ? 'bg-rose-950/80 border-rose-700 text-rose-200' : 'bg-[#1c1917] border-stone-800 text-stone-400'
-                          }`}
-                        >
-                          {pat.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+                {/* Remove Background Image if applied */}
+                {cover.bgImage && (
+                  <button
+                    onClick={() => updateCover(p => ({ ...p, bgType: 'gradient', bgImage: '' }))}
+                    className="w-full py-2 rounded-lg bg-stone-900 border border-stone-800 hover:bg-stone-800 text-xs text-rose-300 flex items-center justify-center gap-1.5 transition-colors"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                    <span>Clear Background Image (Use Gradient)</span>
+                  </button>
+                )}
+              </div>
+            )}
 
-                  {/* Overlay Opacity Slider */}
-                  <div>
-                    <div className="flex justify-between text-xs text-stone-400 mb-1.5">
-                      <span>Contrast Tint Darkness</span>
-                      <span className="font-mono">{Math.round((cover.overlayOpacity || 0.35) * 100)}%</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="0"
-                      max="0.85"
-                      step="0.05"
-                      value={cover.overlayOpacity ?? 0.35}
-                      onChange={(e) => updateCoverWithHistory(c => ({ ...c, overlayOpacity: parseFloat(e.target.value) }))}
-                      className="w-full accent-rose-500"
-                    />
-                    <p className="text-[11px] text-stone-500 mt-1">
-                      Increases readability against vibrant or photographic backgrounds.
-                    </p>
-                  </div>
-
-                  {/* Overlay Tint Color */}
-                  <div>
-                    <label className="block text-[11px] font-semibold text-stone-400 uppercase tracking-wider mb-2">
-                      Overlay Tint Color
-                    </label>
-                    <div className="flex gap-2">
-                      {[
-                        { name: 'Dark Void', color: '#000000' },
-                        { name: 'Night Plum', color: '#1a0b16' },
-                        { name: 'Deep Navy', color: '#09131e' },
-                        { name: 'Warm Charcoal', color: '#171614' },
-                      ].map((tint, i) => (
-                        <button
-                          key={i}
-                          onClick={() => updateCoverWithHistory(c => ({ ...c, overlayColor: tint.color }))}
-                          className={`flex-1 p-2 rounded-xl border text-[11px] flex items-center justify-center gap-1.5 ${
-                            cover.overlayColor === tint.color ? 'bg-stone-800 border-rose-600 text-white' : 'bg-[#1c1917] border-stone-800 text-stone-400'
-                          }`}
-                        >
-                          <span className="w-3 h-3 rounded-full border border-white/20" style={{ backgroundColor: tint.color }} />
-                          <span>{tint.name}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
+            {/* TAB 4: THEME & COLOR PALETTES */}
+            {leftTab === 'typography' && (
+              <div className="space-y-5">
+                <div>
+                  <h3 className="text-xs uppercase font-mono tracking-wider text-stone-400 mb-1">Color Palette & Background</h3>
+                  <p className="text-[11px] text-stone-500">
+                    Fine-tune background gradients, solid tones and atmospheric overlays.
+                  </p>
                 </div>
-              )}
 
-              {/* --- TAB 4: DETAILS & BADGES --- */}
-              {activeTab === 'details' && (
-                <div className="space-y-5">
-                  <div>
-                    <label className="block text-[11px] font-semibold text-stone-400 uppercase tracking-wider mb-1">
-                      Header Badge Text
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Bestseller Edition, Collector's Volume"
-                      value={cover.badgeText || ''}
-                      onChange={(e) => updateCoverWithHistory(c => ({ ...c, badgeText: e.target.value }))}
-                      className="w-full bg-[#1c1917] border border-stone-800 rounded-xl px-3.5 py-2 text-xs text-stone-200 focus:outline-none focus:border-rose-500"
-                    />
+                {/* Gradient Presets */}
+                <div className="space-y-2">
+                  <span className="text-xs font-mono text-stone-400 uppercase">Atmospheric Gradients</span>
+                  <div className="grid grid-cols-3 gap-2">
+                    {GRADIENT_PRESETS.map((g, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => updateCover(p => ({ ...p, bgType: 'gradient', bgGradient: g.value }))}
+                        className="h-12 rounded-lg border border-stone-800 hover:border-emerald-500 relative overflow-hidden transition-all group"
+                        style={{ background: g.value }}
+                        title={g.name}
+                      >
+                        <span className="absolute bottom-1 left-1 text-[9px] font-mono bg-black/60 px-1 rounded text-stone-300 opacity-0 group-hover:opacity-100 transition-opacity">
+                          {g.name}
+                        </span>
+                      </button>
+                    ))}
                   </div>
+                </div>
 
-                  <div>
-                    <label className="block text-[11px] font-semibold text-stone-400 uppercase tracking-wider mb-1">
-                      Tagline / Poetic Motto
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="e.g. When stars fall, gods awaken."
-                      value={cover.tagline || ''}
-                      onChange={(e) => updateCoverWithHistory(c => ({ ...c, tagline: e.target.value }))}
-                      className="w-full bg-[#1c1917] border border-stone-800 rounded-xl px-3.5 py-2 text-xs text-stone-200 focus:outline-none focus:border-rose-500"
-                    />
+                {/* Overlay Patterns */}
+                <div className="space-y-2">
+                  <span className="text-xs font-mono text-stone-400 uppercase">Overlay Pattern</span>
+                  <div className="grid grid-cols-3 gap-1.5 text-[11px]">
+                    {(['none', 'vignette', 'stars', 'dots', 'grid'] as const).map(pat => (
+                      <button
+                        key={pat}
+                        onClick={() => updateCover(p => ({ ...p, overlayPattern: pat }))}
+                        className={`py-1.5 px-2 rounded-lg border capitalize transition-colors ${
+                          cover.overlayPattern === pat ? 'bg-emerald-950/80 border-emerald-700 text-emerald-200' : 'bg-[#141210] border-stone-800 text-stone-400 hover:text-stone-200'
+                        }`}
+                      >
+                        {pat}
+                      </button>
+                    ))}
                   </div>
+                </div>
 
-                  <div className="flex items-center justify-between pt-2">
-                    <div>
-                      <span className="block text-xs font-medium text-stone-200">Display Genre Pill</span>
-                      <span className="text-[11px] text-stone-500">Show {cover.genre || 'genre'} on cover header</span>
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={cover.showGenre !== false}
-                      onChange={(e) => updateCoverWithHistory(c => ({ ...c, showGenre: e.target.checked }))}
-                      className="w-4 h-4 rounded bg-[#1c1917] border-stone-800 text-rose-600 focus:ring-0"
-                    />
+                {/* Overlay Opacity Slider */}
+                <div className="space-y-1.5">
+                  <div className="flex justify-between text-xs text-stone-400">
+                    <span>Darkness Overlay</span>
+                    <span className="font-mono">{Math.round((cover.overlayOpacity || 0) * 100)}%</span>
                   </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={0.9}
+                    step={0.05}
+                    value={cover.overlayOpacity || 0}
+                    onChange={(e) => updateCover(p => ({ ...p, overlayOpacity: parseFloat(e.target.value) }))}
+                    className="w-full accent-emerald-500"
+                  />
+                </div>
+              </div>
+            )}
 
-                  {/* Vertical positioning sliders */}
-                  <div className="space-y-3 pt-3 border-t border-stone-800/80">
-                    <div>
-                      <div className="flex justify-between text-xs text-stone-400 mb-1">
-                        <span>Title Vertical Position</span>
-                        <span className="font-mono">{cover.titlePosition?.y || 38}%</span>
+            {/* TAB 5: LAYERS */}
+            {leftTab === 'layers' && (
+              <div className="space-y-4">
+                <div>
+                  <h3 className="text-xs uppercase font-mono tracking-wider text-stone-400 mb-1">Canvas Layers</h3>
+                  <p className="text-[11px] text-stone-500">
+                    Reorder layer stack, lock items or toggle visibility.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  {(cover.elements || []).slice().reverse().map((el) => {
+                    const isSelected = el.id === selectedElementId;
+                    return (
+                      <div
+                        key={el.id}
+                        onClick={() => setSelectedElementId(el.id)}
+                        className={`p-2.5 rounded-xl border flex items-center justify-between transition-all cursor-pointer ${
+                          isSelected
+                            ? 'bg-emerald-950/40 border-emerald-600 text-emerald-200 shadow'
+                            : 'bg-[#141210] border-stone-800 hover:border-stone-700 text-stone-300'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 max-w-[170px] truncate">
+                          {el.type === 'text' && <Type className="w-3.5 h-3.5 text-stone-400 flex-shrink-0" />}
+                          {el.type === 'image' && <ImageIcon className="w-3.5 h-3.5 text-stone-400 flex-shrink-0" />}
+                          {el.type === 'frame' && <Frame className="w-3.5 h-3.5 text-stone-400 flex-shrink-0" />}
+                          {el.type === 'line' && <Minus className="w-3.5 h-3.5 text-stone-400 flex-shrink-0" />}
+                          {el.type === 'shape' && <Square className="w-3.5 h-3.5 text-stone-400 flex-shrink-0" />}
+                          <span className="text-xs font-medium truncate">{el.name || el.content || 'Element'}</span>
+                        </div>
+
+                        <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            onClick={() => handleToggleLock(el.id)}
+                            className={`p-1 rounded hover:bg-stone-800 ${el.locked ? 'text-amber-400' : 'text-stone-500'}`}
+                            title={el.locked ? 'Unlock' : 'Lock element'}
+                          >
+                            {el.locked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
+                          </button>
+                          <button
+                            onClick={() => handleMoveLayer(el.id, 'up')}
+                            className="p-1 rounded hover:bg-stone-800 text-stone-400 hover:text-stone-200"
+                            title="Bring forward"
+                          >
+                            ▲
+                          </button>
+                          <button
+                            onClick={() => handleMoveLayer(el.id, 'down')}
+                            className="p-1 rounded hover:bg-stone-800 text-stone-400 hover:text-stone-200"
+                            title="Send backward"
+                          >
+                            ▼
+                          </button>
+                          <button
+                            onClick={() => handleDeleteElement(el.id)}
+                            className="p-1 rounded hover:bg-stone-800 text-stone-500 hover:text-rose-400"
+                            title="Delete layer"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
                       </div>
-                      <input
-                        type="range"
-                        min="20"
-                        max="65"
-                        value={cover.titlePosition?.y || 38}
-                        onChange={(e) => updateCoverWithHistory(c => ({
-                          ...c,
-                          titlePosition: { ...c.titlePosition, y: parseInt(e.target.value) }
-                        }))}
-                        className="w-full accent-rose-500"
-                      />
-                    </div>
-
-                    <div>
-                      <div className="flex justify-between text-xs text-stone-400 mb-1">
-                        <span>Author Vertical Position</span>
-                        <span className="font-mono">{cover.authorPosition?.y || 88}%</span>
-                      </div>
-                      <input
-                        type="range"
-                        min="70"
-                        max="95"
-                        value={cover.authorPosition?.y || 88}
-                        onChange={(e) => updateCoverWithHistory(c => ({
-                          ...c,
-                          authorPosition: { ...c.authorPosition, y: parseInt(e.target.value) }
-                        }))}
-                        className="w-full accent-rose-500"
-                      />
-                    </div>
-                  </div>
-
+                    );
+                  })}
                 </div>
-              )}
+              </div>
+            )}
 
-            </div>
-          </aside>
-        )}
+          </div>
+        </aside>
 
-        {/* Right Side: Live Interactive Book Preview Stage */}
-        <main className="flex-1 bg-[#141210]/95 backdrop-blur-md flex flex-col items-center justify-center p-6 sm:p-12 overflow-y-auto">
-          
-          <div className="relative group select-none">
-            
-            {/* Book Spine 3D illusion shadow */}
-            <div className="absolute -inset-4 bg-gradient-to-r from-rose-950/20 via-black/40 to-transparent blur-xl pointer-events-none" />
-
-            {/* Live Book Cover Surface */}
+        {/* ----------------------------------------------------------------- */}
+        {/* Central Canvas Workspace */}
+        {/* ----------------------------------------------------------------- */}
+        <main
+          ref={canvasContainerRef}
+          onClick={() => setSelectedElementId(null)}
+          className="flex-1 bg-[#12100e] relative flex items-center justify-center p-6 sm:p-10 overflow-auto"
+        >
+          {/* Canvas Wrapper scaled with zoom control */}
+          <div
+            style={{ transform: `scale(${zoomLevel / 100})`, transformOrigin: 'center center' }}
+            className="transition-transform duration-150 ease-out"
+          >
+            {/* The Live Interactive Book Cover */}
             <div
+              ref={canvasElementRef}
+              onClick={(e) => e.stopPropagation()}
+              className={`relative shadow-2xl rounded-sm overflow-hidden select-none border border-stone-800/80 ${aspectRatioClass}`}
               style={{
-                backgroundColor: cover.bgColor || '#18181b',
-                backgroundImage: cover.bgType === 'image' && cover.bgImage 
-                  ? `url(${cover.bgImage})` 
-                  : cover.bgType === 'gradient' ? cover.bgGradient : undefined,
+                width: '420px',
+                height: cover.height === cover.width ? '420px' : cover.height === 1600 ? '560px' : '630px',
+                backgroundColor: cover.bgColor || '#141210',
+                backgroundImage: cover.bgType === 'image' && cover.bgImage ? `url(${cover.bgImage})` : cover.bgGradient || 'linear-gradient(135deg, #1c1917 0%, #09090b 100%)',
                 backgroundSize: 'cover',
                 backgroundPosition: 'center',
               }}
-              className="w-[320px] sm:w-[380px] h-[480px] sm:h-[570px] rounded-2xl shadow-2xl relative overflow-hidden border-2 border-stone-700/60 flex flex-col justify-between p-7 transition-all duration-300"
             >
-              {/* Contrast Tint Layer */}
+              {/* Overlay Layer */}
               <div
-                className="absolute inset-0 pointer-events-none"
+                className="absolute inset-0 pointer-events-none transition-opacity"
                 style={{
                   backgroundColor: cover.overlayColor || '#000000',
-                  opacity: typeof cover.overlayOpacity === 'number' ? cover.overlayOpacity : 0.35
+                  opacity: cover.overlayOpacity || 0
                 }}
               />
 
-              {/* Texture Overlays */}
+              {/* Decorative Patterns */}
+              {cover.overlayPattern === 'vignette' && (
+                <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_0%,rgba(0,0,0,0.75)_100%)] pointer-events-none" />
+              )}
               {cover.overlayPattern === 'stars' && (
-                <div className="absolute inset-0 bg-[radial-gradient(#f43f5e_1px,transparent_1px)] [background-size:24px_24px] opacity-30 pointer-events-none" />
+                <div className="absolute inset-0 bg-[radial-gradient(#f43f5e_1px,transparent_1px)] [background-size:22px_22px] opacity-25 pointer-events-none" />
               )}
               {cover.overlayPattern === 'dots' && (
-                <div className="absolute inset-0 bg-[radial-gradient(#ffffff_1px,transparent_1px)] [background-size:18px_18px] opacity-15 pointer-events-none" />
+                <div className="absolute inset-0 bg-[radial-gradient(#ffffff_1px,transparent_1px)] [background-size:16px_16px] opacity-20 pointer-events-none" />
               )}
               {cover.overlayPattern === 'grid' && (
-                <div className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff0d_1px,transparent_1px),linear-gradient(to_bottom,#ffffff0d_1px,transparent_1px)] bg-[size:24px_24px] pointer-events-none" />
-              )}
-              {cover.overlayPattern === 'vignette' && (
-                <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_0%,rgba(0,0,0,0.65)_100%)] pointer-events-none" />
+                <div className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff0d_1px,transparent_1px),linear-gradient(to_bottom,#ffffff0d_1px,transparent_1px)] bg-[size:28px_28px] pointer-events-none" />
               )}
 
-              {/* Literary Framed Border */}
-              <div className="absolute inset-3 border border-white/10 rounded-xl pointer-events-none" />
-              <div className="absolute inset-4 border border-rose-500/20 rounded-lg pointer-events-none" />
-
-              {/* Top Header: Badge & Genre */}
-              <div className="relative z-10 flex items-center justify-between w-full">
-                {cover.badgeText ? (
-                  <span className="px-3 py-1 rounded-full bg-black/60 backdrop-blur-md border border-white/15 text-stone-200 text-[10px] uppercase tracking-widest font-mono">
-                    {cover.badgeText}
+              {/* Safe Text Margins Guide (5% border) */}
+              {showSafeMargins && (
+                <div className="absolute inset-[5%] border border-dashed border-emerald-500/30 rounded-sm pointer-events-none z-30">
+                  <span className="absolute top-1 left-1.5 text-[8px] font-mono text-emerald-400/50 uppercase tracking-widest">
+                    Safe Margin
                   </span>
-                ) : <span />}
+                </div>
+              )}
 
-                {cover.showGenre !== false && cover.genre && (
-                  <span className="px-3 py-1 rounded-full bg-rose-950/70 backdrop-blur-md border border-rose-800/60 text-rose-300 text-[10px] uppercase tracking-wider font-sans font-medium">
-                    {cover.genre}
-                  </span>
-                )}
-              </div>
+              {/* Center Alignment Guides */}
+              {showGuides && (
+                <>
+                  <div className="absolute left-1/2 top-0 bottom-0 w-px bg-emerald-500/20 pointer-events-none z-30" />
+                  <div className="absolute top-1/2 left-0 right-0 h-px bg-emerald-500/20 pointer-events-none z-30" />
+                </>
+              )}
 
-              {/* Center Body: Title & Subtitle & Tagline */}
-              <div 
-                className={`relative z-10 my-auto flex flex-col w-full ${
-                  cover.textAlign === 'left' ? 'text-left items-start' :
-                  cover.textAlign === 'right' ? 'text-right items-end' : 'text-center items-center'
-                }`}
-                style={{
-                  transform: `translateY(${(cover.titlePosition?.y || 38) - 38}px)`
-                }}
-              >
-                <h2
-                  style={{
-                    color: cover.titleColor,
-                    fontSize: `${cover.titleSize}rem`,
-                    fontFamily: cover.fontFamily === 'serif' ? 'Georgia, serif' :
-                                cover.fontFamily === 'mono' ? 'monospace' : 'sans-serif',
-                    fontStyle: cover.fontStyle === 'italic' ? 'italic' : 'normal',
-                    fontWeight: cover.fontWeight === 'bold' ? 'bold' : 'normal',
-                    textShadow: '0 2px 12px rgba(0,0,0,0.9), 0 0 25px rgba(0,0,0,0.6)',
-                  }}
-                  className="leading-tight line-clamp-3 select-none"
-                >
-                  {cover.title}
-                </h2>
+              {/* Interactive Canvas Elements */}
+              {(cover.elements || []).map((el) => {
+                const isSelected = el.id === selectedElementId;
 
-                {cover.subtitle && (
-                  <p
+                return (
+                  <div
+                    key={el.id}
+                    onPointerDown={(e) => handleCanvasPointerDown(e, el.id)}
                     style={{
-                      color: cover.subtitleColor || '#e4e4e7',
-                      fontSize: `${cover.subtitleSize || 1.1}rem`,
-                      textShadow: '0 1px 8px rgba(0,0,0,0.9)'
+                      left: `${el.x}%`,
+                      top: `${el.y}%`,
+                      width: `${el.width}%`,
+                      height: el.height ? `${el.height}%` : undefined,
+                      transform: el.rotation ? `rotate(${el.rotation}deg)` : undefined,
+                      opacity: el.opacity !== undefined ? el.opacity : 1,
+                      cursor: el.locked ? 'default' : 'grab',
                     }}
-                    className="font-sans mt-2 opacity-90 line-clamp-2"
+                    className={`absolute transition-shadow ${
+                      isSelected
+                        ? 'ring-2 ring-emerald-400 ring-offset-1 ring-offset-black/50 z-20'
+                        : 'hover:ring-1 hover:ring-emerald-500/40 z-10'
+                    }`}
                   >
-                    {cover.subtitle}
-                  </p>
-                )}
+                    {/* Render according to type */}
+                    {el.type === 'text' && (
+                      <div
+                        style={{
+                          fontFamily: el.fontFamily ? `'${el.fontFamily}', serif` : 'inherit',
+                          fontSize: `${el.fontSize || 24}px`,
+                          fontWeight: el.fontWeight || 'normal',
+                          fontStyle: el.fontStyle || 'normal',
+                          textAlign: el.textAlign || 'center',
+                          color: el.color || '#fdf6e2',
+                          lineHeight: el.lineHeight || 1.15,
+                          letterSpacing: el.letterSpacing ? `${el.letterSpacing}px` : undefined,
+                          textTransform: el.textTransform || 'none',
+                          textShadow: el.textShadow || '0 2px 10px rgba(0,0,0,0.85)',
+                        }}
+                        className="w-full break-words select-none leading-tight"
+                      >
+                        {el.content}
+                      </div>
+                    )}
 
-                {cover.tagline && (
-                  <p
-                    style={{ textShadow: '0 1px 8px rgba(0,0,0,0.9)' }}
-                    className="text-xs font-serif italic text-amber-200/90 mt-2.5 line-clamp-2"
-                  >
-                    “{cover.tagline}”
-                  </p>
-                )}
-              </div>
+                    {el.type === 'frame' && (
+                      <div
+                        style={{
+                          borderColor: el.strokeColor || '#d4af37',
+                          borderWidth: `${el.strokeWidth || 2}px`,
+                        }}
+                        className="w-full h-full border rounded-sm pointer-events-none"
+                      />
+                    )}
 
-              {/* Bottom Footer: Author Signature */}
-              <div 
-                className={`relative z-10 w-full pt-3 border-t border-white/10 ${
-                  cover.textAlign === 'left' ? 'text-left' :
-                  cover.textAlign === 'right' ? 'text-right' : 'text-center'
-                }`}
-              >
-                <p
-                  style={{
-                    color: cover.authorColor,
-                    textShadow: '0 1px 8px rgba(0,0,0,0.9)'
-                  }}
-                  className="text-xs sm:text-sm uppercase tracking-widest font-mono font-medium truncate"
-                >
-                  {cover.author}
-                </p>
-              </div>
+                    {el.type === 'line' && (
+                      <div
+                        style={{
+                          backgroundColor: el.fillColor || el.strokeColor || '#d4af37',
+                          height: `${el.height || 2}px`,
+                        }}
+                        className="w-full rounded-full pointer-events-none"
+                      />
+                    )}
 
+                    {el.type === 'shape' && (
+                      <div
+                        style={{
+                          backgroundColor: el.fillColor || 'transparent',
+                          borderColor: el.strokeColor || 'transparent',
+                          borderWidth: el.strokeWidth ? `${el.strokeWidth}px` : 0,
+                          borderRadius: el.shapeType === 'circle' ? '9999px' : `${el.borderRadius || 4}px`,
+                        }}
+                        className="w-full h-full"
+                      />
+                    )}
+
+                    {el.type === 'image' && el.src && (
+                      <img
+                        src={el.src}
+                        alt={el.name}
+                        className="w-full h-full object-cover rounded pointer-events-none"
+                      />
+                    )}
+
+                    {/* Selection Controls overlay */}
+                    {isSelected && !el.locked && (
+                      <>
+                        <div className="absolute -top-1.5 -left-1.5 w-3 h-3 bg-emerald-400 rounded-full border border-black" />
+                        <div className="absolute -top-1.5 -right-1.5 w-3 h-3 bg-emerald-400 rounded-full border border-black" />
+                        <div className="absolute -bottom-1.5 -left-1.5 w-3 h-3 bg-emerald-400 rounded-full border border-black" />
+                        <div className="absolute -bottom-1.5 -right-1.5 w-3 h-3 bg-emerald-400 rounded-full border border-black" />
+                      </>
+                    )}
+                  </div>
+                );
+              })}
             </div>
-
-            {/* Book Spine highlight */}
-            <div className="absolute left-0 top-0 bottom-0 w-3 bg-gradient-to-r from-black/40 via-white/5 to-transparent rounded-l-2xl pointer-events-none" />
           </div>
-
-          <div className="mt-6 text-center text-xs text-stone-500 font-mono">
-            <span>Standard 2:3 Literary Portrait • Live Studio Renderer</span>
-          </div>
-
         </main>
 
+        {/* ----------------------------------------------------------------- */}
+        {/* Right-Hand Properties Inspector Panel */}
+        {/* ----------------------------------------------------------------- */}
+        <aside className="w-80 border-l border-[#292524] bg-[#0c0a09]/95 backdrop-blur-md flex flex-col flex-shrink-0 z-20">
+          
+          <div className="p-4 border-b border-[#292524] flex items-center justify-between">
+            <span className="text-xs uppercase font-mono tracking-wider text-stone-300 font-semibold">
+              {selectedElement ? `${selectedElement.name} Properties` : 'Canvas Settings'}
+            </span>
+            {selectedElement && (
+              <button
+                onClick={() => setSelectedElementId(null)}
+                className="text-stone-400 hover:text-stone-200 text-xs"
+              >
+                Done
+              </button>
+            )}
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-4 space-y-6">
+            
+            {/* ELEMENT PROPERTIES (When element is selected) */}
+            {selectedElement ? (
+              <div className="space-y-5">
+                
+                {/* Element Name & Action Row */}
+                <div className="flex items-center justify-between pb-3 border-b border-stone-800">
+                  <input
+                    type="text"
+                    value={selectedElement.name}
+                    onChange={(e) => updateCover(p => ({
+                      ...p,
+                      elements: (p.elements || []).map(item => item.id === selectedElement.id ? { ...item, name: e.target.value } : item)
+                    }))}
+                    className="bg-[#141210] border border-stone-800 rounded px-2 py-1 text-xs text-stone-100 font-medium focus:outline-none focus:border-emerald-600 max-w-[150px]"
+                  />
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => handleToggleLock(selectedElement.id)}
+                      className={`p-1.5 rounded bg-stone-900 border border-stone-800 ${selectedElement.locked ? 'text-amber-400' : 'text-stone-400'}`}
+                      title={selectedElement.locked ? 'Unlock' : 'Lock element'}
+                    >
+                      {selectedElement.locked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
+                    </button>
+                    <button
+                      onClick={() => handleDuplicateElement(selectedElement.id)}
+                      className="p-1.5 rounded bg-stone-900 border border-stone-800 text-stone-400 hover:text-stone-200"
+                      title="Duplicate"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => handleDeleteElement(selectedElement.id)}
+                      className="p-1.5 rounded bg-stone-900 border border-stone-800 text-stone-400 hover:text-rose-400"
+                      title="Delete"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* TEXT ELEMENT CONTROLS */}
+                {selectedElement.type === 'text' && (
+                  <div className="space-y-4">
+                    {/* Content textarea */}
+                    <div>
+                      <label className="block text-[11px] font-mono text-stone-400 uppercase mb-1">Text Content</label>
+                      <textarea
+                        rows={2}
+                        value={selectedElement.content || ''}
+                        onChange={(e) => updateCover(p => ({
+                          ...p,
+                          elements: (p.elements || []).map(item => item.id === selectedElement.id ? { ...item, content: e.target.value } : item)
+                        }))}
+                        className="w-full bg-[#141210] border border-stone-800 rounded-xl p-2.5 text-xs text-stone-100 focus:outline-none focus:border-emerald-500"
+                      />
+                    </div>
+
+                    {/* Font Selector */}
+                    <div>
+                      <label className="block text-[11px] font-mono text-stone-400 uppercase mb-1">Font Family</label>
+                      <select
+                        value={selectedElement.fontFamily || 'Playfair Display'}
+                        onChange={(e) => updateCover(p => ({
+                          ...p,
+                          elements: (p.elements || []).map(item => item.id === selectedElement.id ? { ...item, fontFamily: e.target.value } : item)
+                        }))}
+                        className="w-full bg-[#141210] border border-stone-800 rounded-xl p-2 text-xs text-stone-200 focus:outline-none focus:border-emerald-500"
+                      >
+                        {FONT_OPTIONS.map(f => (
+                          <option key={f.id} value={f.id}>
+                            {f.name} — {f.category}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Font Size & Weight */}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <div className="flex justify-between text-[11px] text-stone-400 mb-1">
+                          <span>Size</span>
+                          <span className="font-mono">{selectedElement.fontSize || 24}px</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={12}
+                          max={90}
+                          value={selectedElement.fontSize || 24}
+                          onChange={(e) => updateCover(p => ({
+                            ...p,
+                            elements: (p.elements || []).map(item => item.id === selectedElement.id ? { ...item, fontSize: parseInt(e.target.value) } : item)
+                          }))}
+                          className="w-full accent-emerald-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-mono text-stone-400 uppercase mb-1">Weight</label>
+                        <select
+                          value={selectedElement.fontWeight || 'bold'}
+                          onChange={(e) => updateCover(p => ({
+                            ...p,
+                            elements: (p.elements || []).map(item => item.id === selectedElement.id ? { ...item, fontWeight: e.target.value } : item)
+                          }))}
+                          className="w-full bg-[#141210] border border-stone-800 rounded-lg p-1.5 text-xs text-stone-200 focus:outline-none"
+                        >
+                          <option value="300">Light (300)</option>
+                          <option value="400">Regular (400)</option>
+                          <option value="600">SemiBold (600)</option>
+                          <option value="700">Bold (700)</option>
+                          <option value="900">Black (900)</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Alignment & Style Buttons */}
+                    <div className="flex items-center justify-between pt-1">
+                      <div className="flex items-center bg-[#141210] border border-stone-800 rounded-lg p-0.5">
+                        <button
+                          onClick={() => updateCover(p => ({
+                            ...p,
+                            elements: (p.elements || []).map(item => item.id === selectedElement.id ? { ...item, textAlign: 'left' } : item)
+                          }))}
+                          className={`p-1.5 rounded ${selectedElement.textAlign === 'left' ? 'bg-emerald-950 text-emerald-300' : 'text-stone-400'}`}
+                        >
+                          <AlignLeft className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => updateCover(p => ({
+                            ...p,
+                            elements: (p.elements || []).map(item => item.id === selectedElement.id ? { ...item, textAlign: 'center' } : item)
+                          }))}
+                          className={`p-1.5 rounded ${selectedElement.textAlign === 'center' ? 'bg-emerald-950 text-emerald-300' : 'text-stone-400'}`}
+                        >
+                          <AlignCenter className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => updateCover(p => ({
+                            ...p,
+                            elements: (p.elements || []).map(item => item.id === selectedElement.id ? { ...item, textAlign: 'right' } : item)
+                          }))}
+                          className={`p-1.5 rounded ${selectedElement.textAlign === 'right' ? 'bg-emerald-950 text-emerald-300' : 'text-stone-400'}`}
+                        >
+                          <AlignRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => updateCover(p => ({
+                            ...p,
+                            elements: (p.elements || []).map(item => item.id === selectedElement.id ? {
+                              ...item,
+                              fontStyle: item.fontStyle === 'italic' ? 'normal' : 'italic'
+                            } : item)
+                          }))}
+                          className={`px-2.5 py-1 rounded text-xs italic font-serif border ${selectedElement.fontStyle === 'italic' ? 'bg-emerald-950 border-emerald-700 text-emerald-200' : 'bg-[#141210] border-stone-800 text-stone-400'}`}
+                        >
+                          Italic
+                        </button>
+
+                        <button
+                          onClick={() => updateCover(p => ({
+                            ...p,
+                            elements: (p.elements || []).map(item => item.id === selectedElement.id ? {
+                              ...item,
+                              textTransform: item.textTransform === 'uppercase' ? 'none' : 'uppercase'
+                            } : item)
+                          }))}
+                          className={`px-2.5 py-1 rounded text-xs font-mono uppercase border ${selectedElement.textTransform === 'uppercase' ? 'bg-emerald-950 border-emerald-700 text-emerald-200' : 'bg-[#141210] border-stone-800 text-stone-400'}`}
+                        >
+                          AA
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Text Color */}
+                    <div>
+                      <label className="block text-[11px] font-mono text-stone-400 uppercase mb-1">Color</label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="color"
+                          value={selectedElement.color || '#fdf6e2'}
+                          onChange={(e) => updateCover(p => ({
+                            ...p,
+                            elements: (p.elements || []).map(item => item.id === selectedElement.id ? { ...item, color: e.target.value } : item)
+                          }))}
+                          className="w-8 h-8 rounded border border-stone-700 cursor-pointer bg-transparent"
+                        />
+                        <input
+                          type="text"
+                          value={selectedElement.color || '#fdf6e2'}
+                          onChange={(e) => updateCover(p => ({
+                            ...p,
+                            elements: (p.elements || []).map(item => item.id === selectedElement.id ? { ...item, color: e.target.value } : item)
+                          }))}
+                          className="flex-1 bg-[#141210] border border-stone-800 rounded px-2 py-1 text-xs font-mono text-stone-200"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Letter Spacing & Line Height */}
+                    <div className="space-y-3 pt-2 border-t border-stone-800">
+                      <div>
+                        <div className="flex justify-between text-[11px] text-stone-400 mb-1">
+                          <span>Letter Spacing (Tracking)</span>
+                          <span className="font-mono">{selectedElement.letterSpacing || 0}px</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={-2}
+                          max={16}
+                          value={selectedElement.letterSpacing || 0}
+                          onChange={(e) => updateCover(p => ({
+                            ...p,
+                            elements: (p.elements || []).map(item => item.id === selectedElement.id ? { ...item, letterSpacing: parseInt(e.target.value) } : item)
+                          }))}
+                          className="w-full accent-emerald-500"
+                        />
+                      </div>
+
+                      <div>
+                        <div className="flex justify-between text-[11px] text-stone-400 mb-1">
+                          <span>Width Span</span>
+                          <span className="font-mono">{selectedElement.width}%</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={20}
+                          max={100}
+                          value={selectedElement.width || 80}
+                          onChange={(e) => updateCover(p => ({
+                            ...p,
+                            elements: (p.elements || []).map(item => item.id === selectedElement.id ? { ...item, width: parseInt(e.target.value) } : item)
+                          }))}
+                          className="w-full accent-emerald-500"
+                        />
+                      </div>
+                    </div>
+
+                  </div>
+                )}
+
+                {/* SHAPE & FRAME CONTROLS */}
+                {(selectedElement.type === 'shape' || selectedElement.type === 'frame' || selectedElement.type === 'line') && (
+                  <div className="space-y-4">
+                    {selectedElement.strokeColor !== undefined && (
+                      <div>
+                        <label className="block text-[11px] font-mono text-stone-400 uppercase mb-1">Border / Stroke Color</label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="color"
+                            value={selectedElement.strokeColor || '#d4af37'}
+                            onChange={(e) => updateCover(p => ({
+                              ...p,
+                              elements: (p.elements || []).map(item => item.id === selectedElement.id ? { ...item, strokeColor: e.target.value } : item)
+                            }))}
+                            className="w-8 h-8 rounded border border-stone-700 cursor-pointer bg-transparent"
+                          />
+                          <input
+                            type="text"
+                            value={selectedElement.strokeColor || '#d4af37'}
+                            onChange={(e) => updateCover(p => ({
+                              ...p,
+                              elements: (p.elements || []).map(item => item.id === selectedElement.id ? { ...item, strokeColor: e.target.value } : item)
+                            }))}
+                            className="flex-1 bg-[#141210] border border-stone-800 rounded px-2 py-1 text-xs font-mono text-stone-200"
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {selectedElement.strokeWidth !== undefined && (
+                      <div>
+                        <div className="flex justify-between text-[11px] text-stone-400 mb-1">
+                          <span>Stroke Width</span>
+                          <span className="font-mono">{selectedElement.strokeWidth}px</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={1}
+                          max={12}
+                          value={selectedElement.strokeWidth || 1}
+                          onChange={(e) => updateCover(p => ({
+                            ...p,
+                            elements: (p.elements || []).map(item => item.id === selectedElement.id ? { ...item, strokeWidth: parseInt(e.target.value) } : item)
+                          }))}
+                          className="w-full accent-emerald-500"
+                        />
+                      </div>
+                    )}
+
+                    <div>
+                      <div className="flex justify-between text-[11px] text-stone-400 mb-1">
+                        <span>Opacity</span>
+                        <span className="font-mono">{Math.round((selectedElement.opacity ?? 1) * 100)}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={0.1}
+                        max={1}
+                        step={0.05}
+                        value={selectedElement.opacity ?? 1}
+                        onChange={(e) => updateCover(p => ({
+                          ...p,
+                          elements: (p.elements || []).map(item => item.id === selectedElement.id ? { ...item, opacity: parseFloat(e.target.value) } : item)
+                        }))}
+                        className="w-full accent-emerald-500"
+                      />
+                    </div>
+                  </div>
+                )}
+
+              </div>
+            ) : (
+              /* CANVAS SETTINGS (When no individual element is selected) */
+              <div className="space-y-6">
+                <div>
+                  <h4 className="text-xs uppercase font-mono tracking-wider text-stone-400 mb-2">Publishing Dimensions</h4>
+                  <div className="space-y-2">
+                    {CANVAS_PRESETS.map(preset => {
+                      const isActive = cover.width === preset.width && cover.height === preset.height;
+                      return (
+                        <div
+                          key={preset.id}
+                          onClick={() => updateCover(p => ({ ...p, width: preset.width, height: preset.height }))}
+                          className={`p-2.5 rounded-xl border cursor-pointer transition-all ${
+                            isActive
+                              ? 'bg-emerald-950/60 border-emerald-600 text-emerald-200'
+                              : 'bg-[#141210] border-stone-800 text-stone-300 hover:border-stone-700'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between text-xs font-semibold mb-0.5">
+                            <span>{preset.name}</span>
+                            <span className="font-mono text-[10px] text-stone-400">{preset.width}×{preset.height}</span>
+                          </div>
+                          <p className="text-[10px] text-stone-500 leading-tight">
+                            {preset.description}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Export Resolution Scale */}
+                <div className="pt-3 border-t border-stone-800">
+                  <h4 className="text-xs uppercase font-mono tracking-wider text-stone-400 mb-2">PNG Export Scale</h4>
+                  <div className="grid grid-cols-3 gap-2 text-xs">
+                    {[1, 1.5, 2].map(scale => (
+                      <button
+                        key={scale}
+                        onClick={() => setExportScale(scale)}
+                        className={`py-2 rounded-lg border text-center transition-colors font-mono ${
+                          exportScale === scale
+                            ? 'bg-emerald-950/80 border-emerald-700 text-emerald-200'
+                            : 'bg-[#141210] border-stone-800 text-stone-400 hover:text-stone-200'
+                        }`}
+                      >
+                        {scale}× ({Math.round(cover.width! * scale)}px)
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Story Association Confirmation */}
+                <div className="pt-3 border-t border-stone-800 p-3 bg-stone-900/60 rounded-xl border border-stone-800 space-y-2">
+                  <div className="flex items-center gap-2 text-xs font-medium text-stone-200">
+                    <Check className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Story Integration</span>
+                  </div>
+                  <p className="text-[11px] text-stone-400 leading-relaxed font-light">
+                    Saving writes directly to <strong className="text-stone-200">"{currentStory?.title}"</strong> without affecting other stories or drafts.
+                  </p>
+                </div>
+              </div>
+            )}
+
+          </div>
+        </aside>
+
       </div>
+
+      {/* 3. Modal 3D Book Mockup & Reader Preview */}
+      {previewMode !== 'none' && (
+        <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in">
+          <div className="relative max-w-2xl w-full bg-[#141210] border border-stone-800 rounded-3xl p-8 flex flex-col items-center shadow-2xl">
+            
+            <button
+              onClick={() => setPreviewMode('none')}
+              className="absolute top-4 right-4 p-2 text-stone-400 hover:text-white"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <h3 className="text-xl font-serif font-bold text-stone-100 mb-2">
+              Realistic Book Mockup Preview
+            </h3>
+            <p className="text-xs text-stone-400 mb-8 text-center max-w-md">
+              A digital simulation of how your readers experience the volume in print and on digital bookshelves.
+            </p>
+
+            {/* 3D Realistic Book Cylinder & Spine Effect */}
+            <div className="relative perspective-[1200px] mb-8">
+              <div
+                style={{
+                  transform: 'rotateY(-24deg) rotateX(8deg)',
+                  transformStyle: 'preserve-3d',
+                }}
+                className="w-64 h-96 relative shadow-[0_25px_50px_-12px_rgba(0,0,0,0.9)] rounded-r-md transition-transform duration-300"
+              >
+                {/* 3D Spine Thickness */}
+                <div
+                  style={{
+                    transform: 'rotateY(-90deg) translateZ(0px)',
+                    transformOrigin: 'left center',
+                    width: '32px',
+                    height: '100%',
+                    left: 0,
+                    top: 0
+                  }}
+                  className="absolute bg-gradient-to-r from-stone-900 to-black border-l border-stone-700/60"
+                />
+
+                {/* 3D Page Block Thickness Edge */}
+                <div
+                  style={{
+                    transform: 'rotateY(90deg) translateZ(32px)',
+                    transformOrigin: 'right center',
+                    width: '30px',
+                    height: '98%',
+                    right: 0,
+                    top: '1%'
+                  }}
+                  className="absolute bg-[#e6dfd1] border-r border-stone-400/40 bg-[linear-gradient(to_bottom,#f4eedf_1px,transparent_1px)] bg-[size:100%_3px]"
+                />
+
+                {/* Front Cover Face */}
+                <div
+                  className="w-full h-full rounded-r-md overflow-hidden relative border-t border-r border-b border-white/20"
+                  style={{
+                    backgroundColor: cover.bgColor || '#141210',
+                    backgroundImage: cover.bgType === 'image' && cover.bgImage ? `url(${cover.bgImage})` : cover.bgGradient || 'linear-gradient(135deg, #1c1917 0%, #09090b 100%)',
+                    backgroundSize: 'cover',
+                    backgroundPosition: 'center',
+                  }}
+                >
+                  {/* Glossy lighting sheen on book surface */}
+                  <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/10 to-transparent pointer-events-none" />
+                  
+                  {/* Spine Crease Shadow */}
+                  <div className="absolute left-0 top-0 bottom-0 w-4 bg-gradient-to-r from-black/60 to-transparent pointer-events-none" />
+
+                  {/* Render Title & Author on Mockup */}
+                  <div className="absolute inset-4 flex flex-col justify-between text-center select-none">
+                    <span className="text-[9px] font-mono tracking-widest uppercase text-stone-300/80">
+                      INOKORA FIRST EDITION
+                    </span>
+
+                    <div>
+                      <h4
+                        style={{ color: cover.titleColor || '#fdf6e2' }}
+                        className="text-lg font-serif font-bold leading-tight"
+                      >
+                        {cover.title || currentStory?.title || 'Book Title'}
+                      </h4>
+                      {cover.subtitle && (
+                        <p className="text-[11px] font-serif italic text-stone-300/90 mt-1">
+                          {cover.subtitle}
+                        </p>
+                      )}
+                    </div>
+
+                    <p
+                      style={{ color: cover.authorColor || '#fdf6e2' }}
+                      className="text-[10px] font-mono tracking-widest uppercase"
+                    >
+                      {cover.author || defaultAuthor}
+                    </p>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setPreviewMode('none')}
+                className="px-5 py-2.5 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs font-medium transition-colors"
+              >
+                Back to Editing
+              </button>
+              <button
+                onClick={() => {
+                  setPreviewMode('none');
+                  handleSaveCover();
+                }}
+                className="px-5 py-2.5 rounded-xl bg-emerald-800 hover:bg-emerald-700 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-lg"
+              >
+                <Check className="w-3.5 h-3.5" />
+                <span>Confirm & Apply to Story</span>
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
 
     </div>
   );

@@ -37,6 +37,43 @@ export interface StoryOutline {
   notes: string;
 }
 
+export type CoverElementType = 'text' | 'image' | 'shape' | 'line' | 'frame';
+
+export interface CoverElement {
+  id: string;
+  type: CoverElementType;
+  name: string;
+  x: number; // percentage (0-100)
+  y: number; // percentage (0-100)
+  width: number; // percentage (0-100)
+  height?: number; // percentage (0-100)
+  rotation?: number; // degrees (-180 to 180)
+  locked?: boolean;
+  opacity?: number; // 0 to 1
+  // Text specific
+  textRole?: 'title' | 'subtitle' | 'author' | 'tagline' | 'badge' | 'custom';
+  content?: string;
+  fontFamily?: string;
+  fontSize?: number; // relative size in px/rem scale
+  fontWeight?: string | number;
+  fontStyle?: 'normal' | 'italic';
+  textAlign?: 'left' | 'center' | 'right';
+  letterSpacing?: number; // in px
+  lineHeight?: number; // multiplier e.g. 1.15
+  color?: string;
+  textShadow?: string;
+  textTransform?: 'none' | 'uppercase' | 'lowercase' | 'capitalize';
+  // Image specific
+  src?: string;
+  objectFit?: 'cover' | 'contain' | 'fill';
+  // Shape/Line/Frame specific
+  shapeType?: 'rectangle' | 'circle' | 'line' | 'border-frame' | 'ornament' | 'divider';
+  fillColor?: string;
+  strokeColor?: string;
+  strokeWidth?: number;
+  borderRadius?: number;
+}
+
 export interface CoverConfig {
   title: string;
   author: string;
@@ -65,6 +102,10 @@ export interface CoverConfig {
   badgeText?: string;
   artworkStyle?: string;
   exportedCoverDataUrl?: string; // high-res cached rendering for cards
+  width?: number; // digital standard e.g. 1600
+  height?: number; // digital standard e.g. 2400
+  elements?: CoverElement[];
+  templateId?: string;
 }
 
 export interface Story {

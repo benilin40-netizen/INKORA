@@ -81,6 +81,21 @@ export const BookCoverDisplay: React.FC<BookCoverDisplayProps> = ({
     };
   }
 
+  if (cover?.exportedCoverDataUrl) {
+    return (
+      <div
+        className={`relative rounded-xl overflow-hidden shadow-2xl select-none border border-stone-700/60 transition-transform ${aspectRatio === '2/3' ? 'aspect-[2/3]' : 'aspect-[3/4]'} ${className}`}
+      >
+        <img
+          src={cover.exportedCoverDataUrl}
+          alt={currentTitle}
+          className="w-full h-full object-cover"
+          loading="lazy"
+        />
+      </div>
+    );
+  }
+
   return (
     <div
       style={containerStyle}
