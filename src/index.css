@@ -1,0 +1,40 @@
+@import "tailwindcss";
+
+@keyframes waveMotionSlow {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(-30px, 20px, 0) scale(1.03);
+  }
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes waveMotionFast {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(25px, -15px, 0) scale(1.02);
+  }
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+.animate-wave-slow {
+  animation: waveMotionSlow 18s ease-in-out infinite;
+}
+
+.animate-wave-fast {
+  animation: waveMotionFast 12s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-wave-slow,
+  .animate-wave-fast {
+    animation: none;
+  }
+}

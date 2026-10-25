@@ -1,0 +1,102 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Author user profile",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "avatar": { "type": "string" },
+        "bio": { "type": "string" },
+        "followersCount": { "type": "integer" },
+        "joinedDate": { "type": "integer" }
+      },
+      "required": ["id", "name", "email"]
+    },
+    "Story": {
+      "title": "Story",
+      "description": "Novel manuscript and metadata",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "authorName": { "type": "string" },
+        "title": { "type": "string" },
+        "synopsis": { "type": "string" },
+        "genre": { "type": "string" },
+        "status": { "type": "string", "enum": ["draft", "published"] },
+        "visibility": { "type": "string", "enum": ["private", "public"] },
+        "totalWordCount": { "type": "integer" },
+        "createdAt": { "type": "integer" },
+        "updatedAt": { "type": "integer" },
+        "likesCount": { "type": "integer" }
+      },
+      "required": ["id", "userId", "title", "genre", "status"]
+    },
+    "DailyQuote": {
+      "title": "DailyQuote",
+      "description": "Daily literary quote generated or curated for all visitors",
+      "type": "object",
+      "properties": {
+        "date": { "type": "string" },
+        "text": { "type": "string" },
+        "style": { "type": "string" },
+        "attribution": { "type": "string" },
+        "isAiGenerated": { "type": "boolean" },
+        "generatedAt": { "type": "integer" }
+      },
+      "required": ["date", "text", "attribution"]
+    },
+    "Admin": {
+      "title": "Admin",
+      "description": "System administrator designation",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "assignedAt": { "type": "integer" }
+      },
+      "required": ["uid", "email"]
+    },
+    "StoryReport": {
+      "title": "StoryReport",
+      "description": "Reader report on inappropriate or infringing content",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "storyId": { "type": "string" },
+        "storyTitle": { "type": "string" },
+        "reporterEmail": { "type": "string" },
+        "reason": { "type": "string" },
+        "details": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "resolved"] },
+        "createdAt": { "type": "integer" }
+      },
+      "required": ["id", "storyId", "reason", "status", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "User profiles collection"
+    },
+    "/stories/{storyId}": {
+      "schema": { "$ref": "#/entities/Story" },
+      "description": "Stories and novels collection"
+    },
+    "/daily_quotes/{dateId}": {
+      "schema": { "$ref": "#/entities/DailyQuote" },
+      "description": "Daily quotes collection"
+    },
+    "/admins/{adminId}": {
+      "schema": { "$ref": "#/entities/Admin" },
+      "description": "Admin users registry"
+    },
+    "/reports/{reportId}": {
+      "schema": { "$ref": "#/entities/StoryReport" },
+      "description": "Story content reports collection"
+    }
+  }
+}

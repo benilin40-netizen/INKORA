@@ -1,0 +1,61 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+    
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Users collection: Public profiles can be read by visitors; only owner or admin can edit
+    match /users/{userId} {
+      allow read: if true;
+      allow create, update: if isOwner(userId) || isAdmin();
+      allow delete: if isOwner(userId) || isAdmin();
+    }
+
+    // Stories collection:
+    // Published or public stories are readable by all; drafts readable only by author or admin.
+    match /stories/{storyId} {
+      allow read: if resource.data.visibility == 'public' || 
+                     resource.data.status == 'published' || 
+                     (isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin()));
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+    }
+
+    // Daily quotes collection: all visitors can read the shared daily quote
+    match /daily_quotes/{dateId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Admins registry: protected, client cannot self-promote to admin
+    match /admins/{adminId} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    // Content reports: Readers can submit reports; only admin can review/moderate
+    match /reports/{reportId} {
+      allow create: if true;
+      allow read, update, delete: if isAdmin();
+    }
+  }
+}

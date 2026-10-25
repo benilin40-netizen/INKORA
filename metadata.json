@@ -1,0 +1,6 @@
+{
+  "name": "INKORA",
+  "description": "Your imagination, in print. Story writing and book cover studio.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
