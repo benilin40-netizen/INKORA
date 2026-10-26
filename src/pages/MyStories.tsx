@@ -39,6 +39,7 @@ export const MyStories: React.FC<MyStoriesProps> = ({
   const [showNewModal, setShowNewModal] = useState(false);
 
   const [newTitle, setNewTitle] = useState('');
+  const [workType, setWorkType] = useState<'prose' | 'poetry'>('prose');
   const [newGenre, setNewGenre] = useState<Genre>('Fantasy');
   const [newSynopsis, setNewSynopsis] = useState('');
   const [nextStep, setNextStep] = useState<'editor' | 'cover'>('cover');
@@ -71,16 +72,16 @@ export const MyStories: React.FC<MyStoriesProps> = ({
       authorName: authorDisplayName,
       title: newTitle.trim(),
       synopsis: newSynopsis.trim() || 'A captivating new tale waiting to be told.',
-      genre: newGenre,
-      tags: [newGenre, 'Original Work'],
+      genre: workType === 'poetry' ? 'Poetry' : newGenre,
+      tags: [workType === 'poetry' ? 'Poetry' : newGenre, workType === 'poetry' ? 'Poetry Collection' : 'Original Work'],
       status: 'draft',
       visibility: 'private',
       chapters: [
         {
           id: `ch-${Date.now()}`,
-          title: 'Chapter 1: The Beginning',
-          content: 'Begin writing your story here...',
-          wordCount: 5,
+          title: workType === 'poetry' ? 'I. First Stanza' : 'Chapter 1: The Beginning',
+          content: workType === 'poetry' ? 'Write your poetry lines and stanzas here...\n\nPreserving all line breaks and rhythm.' : 'Begin writing your story here...',
+          wordCount: workType === 'poetry' ? 12 : 5,
           order: 1,
           lastModified: Date.now()
         }
@@ -356,34 +357,76 @@ export const MyStories: React.FC<MyStoriesProps> = ({
             </p>
 
             <form onSubmit={handleCreate} className="space-y-4">
+              {/* Work Type Selection */}
+              <div>
+                <label className="block text-xs font-medium text-stone-300 uppercase tracking-wider mb-2">
+                  Publication Format
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => { setWorkType('prose'); setNewGenre('Fantasy'); }}
+                    className={`p-3 rounded-xl border text-left flex items-start gap-2.5 transition-all ${
+                      workType === 'prose'
+                        ? 'bg-rose-950/80 border-rose-700 text-rose-200'
+                        : 'bg-[#1c1917] border-stone-800 text-stone-400 hover:text-stone-200'
+                    }`}
+                  >
+                    <BookOpen className="w-4 h-4 text-rose-400 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <div className="text-xs font-semibold text-stone-100">Prose Novel / Story</div>
+                      <div className="text-[10px] text-stone-400">Chapters, narrative & plot</div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => { setWorkType('poetry'); setNewGenre('Poetry'); }}
+                    className={`p-3 rounded-xl border text-left flex items-start gap-2.5 transition-all ${
+                      workType === 'poetry'
+                        ? 'bg-rose-950/80 border-rose-700 text-rose-200'
+                        : 'bg-[#1c1917] border-stone-800 text-stone-400 hover:text-stone-200'
+                    }`}
+                  >
+                    <Sparkles className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <div className="text-xs font-semibold text-stone-100">Poetry Collection</div>
+                      <div className="text-[10px] text-stone-400">Stanzas, line breaks & verse</div>
+                    </div>
+                  </button>
+                </div>
+              </div>
+
               <div>
                 <label className="block text-xs font-medium text-stone-300 uppercase tracking-wider mb-1.5">
-                  Story Title
+                  {workType === 'poetry' ? 'Collection / Poem Title' : 'Story Title'}
                 </label>
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Chronicles of the Glass Kingdom"
+                  placeholder={workType === 'poetry' ? 'e.g. Whispers of the Midnight Sea' : 'e.g. Chronicles of the Glass Kingdom'}
                   value={newTitle}
                   onChange={(e) => setNewTitle(e.target.value)}
                   className="w-full bg-[#1c1917] border border-stone-800 rounded-xl px-4 py-2.5 text-xs sm:text-sm text-stone-200 focus:outline-none focus:border-rose-500"
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-medium text-stone-300 uppercase tracking-wider mb-1.5">
-                  Genre
-                </label>
-                <select
-                  value={newGenre}
-                  onChange={(e) => setNewGenre(e.target.value as Genre)}
-                  className="w-full bg-[#1c1917] border border-stone-800 rounded-xl px-4 py-2.5 text-xs sm:text-sm text-stone-200 focus:outline-none focus:border-rose-500"
-                >
-                  {GENRES.map(g => (
-                    <option key={g} value={g}>{g}</option>
-                  ))}
-                </select>
-              </div>
+              {workType !== 'poetry' && (
+                <div>
+                  <label className="block text-xs font-medium text-stone-300 uppercase tracking-wider mb-1.5">
+                    Genre
+                  </label>
+                  <select
+                    value={newGenre}
+                    onChange={(e) => setNewGenre(e.target.value as Genre)}
+                    className="w-full bg-[#1c1917] border border-stone-800 rounded-xl px-4 py-2.5 text-xs sm:text-sm text-stone-200 focus:outline-none focus:border-rose-500"
+                  >
+                    {GENRES.map(g => (
+                      <option key={g} value={g}>{g}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               <div>
                 <div className="flex items-center justify-between mb-1.5">

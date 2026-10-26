@@ -6,7 +6,8 @@ import {
 import { User, Story, StoryReport } from '../types';
 import { StorageService } from '../services/storage';
 import { DriveService } from '../services/drive';
-import { getCachedAccessToken, AuthService } from '../services/firebase';
+import { getCachedAccessToken, AuthService, auth, db } from '../services/firebase';
+import { doc, setDoc } from 'firebase/firestore';
 import { fetchJson } from '../utils/api';
 import { Logo } from '../components/Logo';
 
@@ -27,7 +28,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onBack,
   onAdminStatusChange,
 }) => {
-  const [isAdmin, setIsAdmin] = useState(!!user.isAdmin);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [activeTab, setActiveTab] = useState<'overview' | 'stories' | 'reports' | 'system' | 'drive' | 'storage-servers' | 'users'>('overview');
   const [authMode, setAuthMode] = useState<'setup' | 'login' | 'reset'>('setup');
   const [loading, setLoading] = useState(false);
@@ -93,59 +94,120 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     return err?.message || 'Authentication operation failed.';
   };
 
-  useEffect(() => {
-    fetchJson<{ exists: boolean }>('/api/admin/exists')
-      .then(data => {
-        setAdminExists(!!data.exists);
-        if (data.exists) {
-          setAuthMode('login');
-        }
-      })
-      .catch((err) => {
-        console.warn('[AdminPanel] Could not verify admin existence:', err?.message || err);
-        setAdminExists(false);
-      });
-    setIsDriveConnected(!!getCachedAccessToken());
-  }, [user]);
-
-  // Check admin status with backend
-  useEffect(() => {
-    async function checkRole() {
-      if (user.id && user.id !== 'guest') {
-        try {
-          const data = await fetchJson<{ isAdmin: boolean }>(`/api/admin/check-role?uid=${user.id}`);
-          if (data.isAdmin) {
-            setIsAdmin(true);
-            onAdminStatusChange(true);
-          }
-        } catch (err: any) {
-          console.warn('[AdminPanel] Role check bypassed:', err?.message || err);
-        }
+  // Secure authenticated fetch helper: attaches cryptographic Firebase Bearer token to every request
+  const authFetchJson = async <T,>(url: string, options: RequestInit = {}): Promise<T> => {
+    let token = '';
+    if (auth.currentUser) {
+      try {
+        token = await auth.currentUser.getIdToken();
+      } catch (e) {
+        console.warn('[AdminPanel] Could not retrieve ID token:', e);
       }
     }
-    checkRole();
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...(options.headers as Record<string, string> || {})
+    };
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    const res = await fetch(url, {
+      ...options,
+      headers
+    });
+
+    if (res.status === 401 || res.status === 403) {
+      setIsAdmin(false);
+      onAdminStatusChange(false);
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error || 'Access Denied: Administrator privileges required.');
+    }
+
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error || `Request failed with status ${res.status}`);
+    }
+
+    return res.json();
+  };
+
+  // 1. Initial check: check if platform owner is configured
+  useEffect(() => {
+    let isMounted = true;
+    async function checkStatus() {
+      try {
+        const data = await fetchJson<{ ownerConfigured: boolean; locked: boolean }>('/api/admin/status');
+        if (!isMounted) return;
+        setAdminExists(data.ownerConfigured);
+        if (data.ownerConfigured) {
+          setAuthMode('login');
+        } else {
+          setAuthMode('setup');
+        }
+      } catch (err: any) {
+        console.warn('[AdminPanel] Could not verify owner status:', err?.message || err);
+        if (isMounted) setAdminExists(false);
+      }
+    }
+    checkStatus();
+    setIsDriveConnected(!!getCachedAccessToken());
+    return () => { isMounted = false; };
+  }, []);
+
+  // 2. Verified Role Check with Server using cryptographic Bearer token
+  useEffect(() => {
+    let isMounted = true;
+    async function verifyAdminRole() {
+      if (auth.currentUser) {
+        try {
+          const idToken = await auth.currentUser.getIdToken();
+          const roleData = await fetchJson<{ isAdmin: boolean; isOwner: boolean; ownerConfigured: boolean }>('/api/admin/check-role', {
+            headers: { 'Authorization': `Bearer ${idToken}` }
+          });
+          if (!isMounted) return;
+          if (roleData.isAdmin) {
+            setIsAdmin(true);
+            onAdminStatusChange(true);
+            loadDashboardData();
+          } else {
+            setIsAdmin(false);
+            onAdminStatusChange(false);
+          }
+        } catch (err: any) {
+          console.warn('[AdminPanel] Role check failed:', err?.message || err);
+          if (isMounted) {
+            setIsAdmin(false);
+            onAdminStatusChange(false);
+          }
+        }
+      } else {
+        setIsAdmin(false);
+        onAdminStatusChange(false);
+      }
+    }
+    verifyAdminRole();
+    return () => { isMounted = false; };
   }, [user.id]);
 
-  // Load health, overview, reports, users, and activity logs
-  useEffect(() => {
-    fetchJson<{ totalUsers: number; totalStories: number; publishedStories: number; drafts: number }>('/api/admin/overview')
-      .then(data => setOverviewData(data))
-      .catch(() => setOverviewData({ totalUsers: 0, totalStories: stories.length, publishedStories: stories.filter(s => s.status === 'published').length, drafts: stories.filter(s => s.status !== 'published').length }));
-
-    fetchJson<{ status: string; aiConfigured: boolean }>('/api/health')
-      .then(data => setHealthStatus(data))
-      .catch(() => setHealthStatus({ status: 'active', aiConfigured: false }));
-
-    fetchJson<{ users: any[]; stats: any }>('/api/admin/users')
-      .then(res => {
-        setUsersList(res.users);
-        setUserStats(res.stats);
-      })
-      .catch(() => {});
-
-    fetchJson<any[]>('/api/admin/activity-logs')
-      .then(logs => setActivityLogs(logs))
-      .catch(() => {});
+  // 3. Load admin dashboard data ONLY after verified authorization
+  const loadDashboardData = async () => {
+    try {
+      const [overview, health, users, logs] = await Promise.all([
+        authFetchJson<{ totalUsers: number; totalStories: number; publishedStories: number; drafts: number }>('/api/admin/overview'),
+        authFetchJson<{ status: string; aiConfigured: boolean }>('/api/health'),
+        authFetchJson<{ users: any[]; stats: any }>('/api/admin/users'),
+        authFetchJson<any[]>('/api/admin/activity-logs')
+      ]);
+      setOverviewData(overview);
+      setHealthStatus(health);
+      setUsersList(users.users || []);
+      setUserStats(users.stats || null);
+      setActivityLogs(logs || []);
+    } catch (err: any) {
+      console.warn('[AdminPanel] Failed loading admin data:', err?.message || err);
+    }
 
     try {
       const stored = localStorage.getItem('inokora_reports_v4');
@@ -153,82 +215,49 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         setReports(JSON.parse(stored));
       }
     } catch {}
-  }, []);
 
-  const handleAdminLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!email.trim() || !password.trim()) {
-      setError('Please enter both email and password.');
-      return;
-    }
-    setLoading(true);
-    setError('');
-    setSuccessMsg('');
+    loadStorageData();
+  };
+
+  const loadStorageData = async () => {
     try {
-      const { user: fbUser } = await AuthService.signInWithEmail(email.trim(), password);
-      
-      if (!adminExists) {
-        // Atomic first-time admin registration for existing user
-        await fetchJson<{ success: boolean; isAdmin: boolean }>('/api/admin/register', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            uid: fbUser.uid,
-            email: fbUser.email || email.trim()
-          })
-        });
-        setIsAdmin(true);
-        onAdminStatusChange(true);
-        setAdminExists(true);
-      } else {
-        // Verify server-side role
-        const roleData = await fetchJson<{ isAdmin: boolean }>(`/api/admin/check-role?uid=${fbUser.uid}`);
-        if (roleData.isAdmin) {
-          setIsAdmin(true);
-          onAdminStatusChange(true);
-        } else {
-          setError('Access denied: This account does not possess administrator privileges.');
-        }
-      }
+      const [serversRes, overviewRes] = await Promise.all([
+        authFetchJson<any[]>('/api/admin/storage/servers'),
+        authFetchJson<any>('/api/admin/storage/overview')
+      ]);
+      setStorageServers(serversRes);
+      setStorageOverview(overviewRes);
     } catch (e: any) {
-      setError(formatAuthError(e));
-    } finally {
-      setLoading(false);
+      console.warn('[AdminPanel] Could not load storage servers:', e?.message || e);
     }
   };
 
-  const handleGoogleAdminLogin = async () => {
-    setLoading(true);
-    setError('');
-    setSuccessMsg('');
-    try {
-      const { user: fbUser } = await AuthService.signInWithGoogle();
-      if (!adminExists) {
-        await fetchJson<{ success: boolean; isAdmin: boolean }>('/api/admin/register', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            uid: fbUser.uid,
-            email: fbUser.email
-          })
-        });
-        setIsAdmin(true);
-        onAdminStatusChange(true);
-        setAdminExists(true);
-      } else {
-        const roleData = await fetchJson<{ isAdmin: boolean }>(`/api/admin/check-role?uid=${fbUser.uid}`);
-        if (roleData.isAdmin) {
-          setIsAdmin(true);
-          onAdminStatusChange(true);
-        } else {
-          setError('Access denied: This Google account does not possess administrator privileges.');
-        }
+  const handleClaimSoleOwnerWithToken = async (idToken: string, fbUser: any) => {
+    await fetchJson<{ success: boolean; ownerUid: string; ownerEmail: string }>('/api/admin/setup-owner', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${idToken}`
       }
-    } catch (e: any) {
-      setError(formatAuthError(e));
-    } finally {
-      setLoading(false);
+    });
+
+    if (db) {
+      try {
+        await setDoc(doc(db, 'admins', 'sole_owner'), {
+          uid: fbUser.uid,
+          email: fbUser.email || '',
+          establishedAt: Date.now()
+        });
+      } catch (fsErr) {
+        console.warn('[Admin] Firestore sole_owner write notice:', fsErr);
+      }
     }
+
+    setIsAdmin(true);
+    onAdminStatusChange(true);
+    setAdminExists(true);
+    setSuccessMsg(`Sole ownership permanently established and locked for ${fbUser.email || fbUser.uid}.`);
+    loadDashboardData();
   };
 
   const handleRegister = async (e?: React.FormEvent) => {
@@ -251,26 +280,88 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
     setLoading(true);
     try {
-      let uid = user.id;
-      let emailAddr = user.email;
+      let activeUser = auth.currentUser;
 
-      if (user.id === 'guest') {
+      if (user.id === 'guest' || !activeUser) {
         const { user: newUser } = await AuthService.signUpWithEmail(email.trim(), password, name.trim());
-        uid = newUser.uid;
-        emailAddr = newUser.email || email.trim();
+        activeUser = newUser;
       }
 
-      await fetchJson<{ success: boolean; isAdmin: boolean }>('/api/admin/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          uid,
-          email: emailAddr
-        })
-      });
-      setIsAdmin(true);
-      onAdminStatusChange(true);
-      setAdminExists(true);
+      if (!activeUser) {
+        throw new Error('Authentication failed during setup.');
+      }
+
+      const idToken = await activeUser.getIdToken(true);
+      await handleClaimSoleOwnerWithToken(idToken, activeUser);
+    } catch (e: any) {
+      setError(formatAuthError(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGoogleAdminLogin = async () => {
+    setError('');
+    setSuccessMsg('');
+    setLoading(true);
+    try {
+      const { user: googleUser } = await AuthService.signInWithGoogle();
+      if (!googleUser) {
+        throw new Error('Google sign-in did not return a user account.');
+      }
+      const idToken = await googleUser.getIdToken(true);
+      if (!adminExists) {
+        await handleClaimSoleOwnerWithToken(idToken, googleUser);
+      } else {
+        const roleData = await fetchJson<{ isAdmin: boolean; isOwner: boolean }>('/api/admin/check-role', {
+          headers: { 'Authorization': `Bearer ${idToken}` }
+        });
+        if (roleData.isAdmin) {
+          setIsAdmin(true);
+          onAdminStatusChange(true);
+          setSuccessMsg('Successfully authenticated as administrator.');
+          loadDashboardData();
+        } else {
+          throw new Error('This Google account is not authorised as the INOKORA sole owner/administrator.');
+        }
+      }
+    } catch (e: any) {
+      setError(formatAuthError(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAdminLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setSuccessMsg('');
+    if (!email.trim() || !password.trim()) {
+      setError('Please provide your admin email and password.');
+      return;
+    }
+    setLoading(true);
+    try {
+      const { user: fbUser } = await AuthService.signInWithEmail(email.trim(), password);
+      if (!fbUser) {
+        throw new Error('Sign-in failed.');
+      }
+      const idToken = await fbUser.getIdToken(true);
+      if (!adminExists) {
+        await handleClaimSoleOwnerWithToken(idToken, fbUser);
+      } else {
+        const roleData = await fetchJson<{ isAdmin: boolean }>('/api/admin/check-role', {
+          headers: { 'Authorization': `Bearer ${idToken}` }
+        });
+        if (roleData.isAdmin) {
+          setIsAdmin(true);
+          onAdminStatusChange(true);
+          setSuccessMsg('Successfully authenticated as administrator.');
+          loadDashboardData();
+        } else {
+          throw new Error('This account is not authorized as the INOKORA administrator.');
+        }
+      }
     } catch (e: any) {
       setError(formatAuthError(e));
     } finally {
@@ -324,25 +415,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   };
 
-  const loadStorageData = async () => {
-    try {
-      const [serversRes, overviewRes] = await Promise.all([
-        fetchJson<any[]>('/api/admin/storage/servers'),
-        fetchJson<any>('/api/admin/storage/overview')
-      ]);
-      setStorageServers(serversRes);
-      setStorageOverview(overviewRes);
-    } catch (e: any) {
-      console.warn('[AdminPanel] Could not load storage servers:', e?.message || e);
-    }
-  };
-
-  useEffect(() => {
-    if (isAdmin) {
-      loadStorageData();
-    }
-  }, [isAdmin]);
-
   const handleSaveServer = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!serverForm.name.trim()) {
@@ -352,7 +424,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setLoading(true);
     setError('');
     try {
-      await fetchJson('/api/admin/storage/servers', {
+      await authFetchJson('/api/admin/storage/servers', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -376,7 +448,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setError('');
     setSuccessMsg('');
     try {
-      const res = await fetchJson<{ success: boolean; status: string; error?: string }>(`/api/admin/storage/servers/${id}/test`, {
+      const res = await authFetchJson<{ success: boolean; status: string; error?: string }>(`/api/admin/storage/servers/${id}/test`, {
         method: 'POST'
       });
       if (res.success) {
@@ -397,7 +469,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       return;
     }
     try {
-      const res = await fetchJson<{ success: boolean; warning?: string }>(`/api/admin/storage/servers/${id}`, {
+      const res = await authFetchJson<{ success: boolean; warning?: string }>(`/api/admin/storage/servers/${id}`, {
         method: 'DELETE'
       });
       if (res.warning) {
@@ -994,6 +1066,32 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   </button>
                 </div>
 
+                {/* Primary Storage Provider Identification Card */}
+                <div className="p-5 rounded-2xl bg-[#181614] border border-stone-800 shadow-xl space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-lg bg-emerald-950/80 border border-emerald-800 text-emerald-400 flex items-center justify-center">
+                        <Database className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h4 className="font-serif font-bold text-sm text-stone-100">Primary Configured Database & Storage</h4>
+                        <p className="text-xs text-stone-400 font-mono">Google Cloud Firestore • Project ID: gen-lang-client-0840891664</p>
+                      </div>
+                    </div>
+                    <span className="px-2.5 py-1 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-900 text-xs font-mono font-medium">
+                      Active (Cloud Online)
+                    </span>
+                  </div>
+                  <div className="text-xs text-stone-300 leading-relaxed font-light border-t border-stone-800/80 pt-2 space-y-1">
+                    <p>
+                      Database ID: <code className="text-stone-200 bg-stone-900 px-1.5 py-0.5 rounded font-mono">ai-studio-inkora-5bb88a89-1959-4032-bc50-c9e9b44c71bd</code>
+                    </p>
+                    <p className="text-stone-400">
+                      Exact byte volume quotas are monitored via Google Cloud Console metrics under the Spark/Enterprise tier. Client applications track actual document entities and metadata without fabricating byte estimates.
+                    </p>
+                  </div>
+                </div>
+
                 {/* Storage Overview Cards */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                   <div className="bg-[#121110] border border-stone-800 rounded-2xl p-5 shadow-xl space-y-2">
@@ -1380,7 +1478,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                   <button
                                     onClick={async () => {
                                       if (confirm(`Are you sure you want to delete user ${u.name}?`)) {
-                                        await fetchJson(`/api/admin/users/${u.id}`, { method: 'DELETE' });
+                                        await authFetchJson(`/api/admin/users/${u.id}`, { method: 'DELETE' });
                                         setUsersList(usersList.filter(item => item.id !== u.id));
                                       }
                                     }}

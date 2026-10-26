@@ -27,13 +27,33 @@
         "synopsis": { "type": "string" },
         "genre": { "type": "string" },
         "status": { "type": "string", "enum": ["draft", "published"] },
-        "visibility": { "type": "string", "enum": ["private", "public"] },
+        "visibility": { "type": "string", "enum": ["private", "unlisted", "public"] },
         "totalWordCount": { "type": "integer" },
         "createdAt": { "type": "integer" },
         "updatedAt": { "type": "integer" },
         "likesCount": { "type": "integer" }
       },
       "required": ["id", "userId", "title", "genre", "status"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "User notification for comments, publications, bookmarks and system alerts",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "recipientId": { "type": "string" },
+        "senderId": { "type": "string" },
+        "senderName": { "type": "string" },
+        "senderAvatar": { "type": "string" },
+        "type": { "type": "string", "enum": ["comment", "publication", "bookmark", "like", "system"] },
+        "storyId": { "type": "string" },
+        "storyTitle": { "type": "string" },
+        "chapterId": { "type": "string" },
+        "message": { "type": "string" },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "integer" }
+      },
+      "required": ["id", "recipientId", "senderName", "type", "message", "read", "createdAt"]
     },
     "DailyQuote": {
       "title": "DailyQuote",
@@ -85,6 +105,10 @@
     "/stories/{storyId}": {
       "schema": { "$ref": "#/entities/Story" },
       "description": "Stories and novels collection"
+    },
+    "/notifications/{notificationId}": {
+      "schema": { "$ref": "#/entities/Notification" },
+      "description": "User notifications collection"
     },
     "/daily_quotes/{dateId}": {
       "schema": { "$ref": "#/entities/DailyQuote" },

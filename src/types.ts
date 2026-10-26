@@ -49,9 +49,10 @@ export interface CoverElement {
   height?: number; // percentage (0-100)
   rotation?: number; // degrees (-180 to 180)
   locked?: boolean;
+  hidden?: boolean;
   opacity?: number; // 0 to 1
   // Text specific
-  textRole?: 'title' | 'subtitle' | 'author' | 'tagline' | 'badge' | 'custom';
+  textRole?: 'title' | 'subtitle' | 'author' | 'series' | 'publisher' | 'tagline' | 'badge' | 'custom';
   content?: string;
   fontFamily?: string;
   fontSize?: number; // relative size in px/rem scale
@@ -78,6 +79,8 @@ export interface CoverConfig {
   title: string;
   author: string;
   subtitle?: string;
+  series?: string;
+  publisher?: string;
   tagline?: string;
   genre?: Genre | string;
   showGenre?: boolean;
@@ -103,9 +106,11 @@ export interface CoverConfig {
   artworkStyle?: string;
   exportedCoverDataUrl?: string; // high-res cached rendering for cards
   width?: number; // digital standard e.g. 1600
-  height?: number; // digital standard e.g. 2400
+  height?: number; // digital standard e.g. 2560
   elements?: CoverElement[];
   templateId?: string;
+  schemaVersion?: number;
+  exportFormat?: 'png' | 'jpeg';
 }
 
 export interface Story {
@@ -115,9 +120,10 @@ export interface Story {
   title: string;
   synopsis: string;
   genre?: Genre | string;
+  contentType?: 'story' | 'poem' | 'collection';
   tags: string[];
   status: 'draft' | 'published';
-  visibility: 'private' | 'public';
+  visibility: 'private' | 'unlisted' | 'public';
   chapters: Chapter[];
   characters: Character[];
   outline: StoryOutline;
@@ -128,6 +134,35 @@ export interface Story {
   likesCount: number;
   readsCount: number;
   bookmarksCount: number;
+}
+
+export type NotificationType = 'comment' | 'publication' | 'bookmark' | 'like' | 'system';
+
+export interface AppNotification {
+  id: string;
+  recipientId: string;
+  senderId?: string;
+  senderName: string;
+  senderAvatar?: string;
+  type: NotificationType;
+  storyId?: string;
+  storyTitle?: string;
+  chapterId?: string;
+  message: string;
+  read: boolean;
+  createdAt: number;
+}
+
+export interface StoryVersion {
+  id: string;
+  storyId: string;
+  timestamp: number;
+  label: string;
+  totalWordCount: number;
+  chaptersCount: number;
+  chapters: Chapter[];
+  title: string;
+  synopsis: string;
 }
 
 export interface User {

@@ -16,7 +16,7 @@ import firebaseConfig from '../../firebase-applet-config.json';
 import { User } from '../types';
 
 const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+export const db = getFirestore(app, 'ai-studio-inkora-5bb88a89-1959-4032-bc50-c9e9b44c71bd');
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.addScope('https://www.googleapis.com/auth/drive.file');

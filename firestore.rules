@@ -11,7 +11,11 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+      return isSignedIn() && (
+        (exists(/databases/$(database)/documents/admins/sole_owner) && 
+         get(/databases/$(database)/documents/admins/sole_owner).data.uid == request.auth.uid) ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
     }
 
     function isOwner(userId) {
@@ -31,13 +35,23 @@ service cloud.firestore {
     }
 
     // Stories collection:
-    // Published or public stories are readable by all; drafts readable only by author or admin.
+    // - Public stories are discoverable and readable by all visitors.
+    // - Unlisted stories are readable via direct link, but never in public discovery.
+    // - Private stories are strictly readable only by the author or admin.
     match /stories/{storyId} {
-      allow read: if resource.data.visibility == 'public' || 
-                     resource.data.status == 'published' || 
+      allow read: if (resource.data.visibility == 'public' && resource.data.status == 'published') || 
+                     (resource.data.visibility == 'unlisted') || 
                      (isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin()));
       allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
       allow update, delete: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+    }
+
+    // Notifications collection:
+    // - Users can read, update (mark read), or delete only their own notifications.
+    // - Signed-in users can dispatch a notification to a story author.
+    match /notifications/{notificationId} {
+      allow read, update, delete: if isSignedIn() && resource.data.recipientId == request.auth.uid;
+      allow create: if isSignedIn();
     }
 
     // Daily quotes collection: all visitors can read the shared daily quote
@@ -47,9 +61,19 @@ service cloud.firestore {
     }
 
     // Admins registry: protected, client cannot self-promote to admin
+    // - Reading is restricted to checking one's own admin status (no public enumeration of admins)
+    // - First-time sole_owner document creation is atomic and allowed ONCE only when no owner exists
+    // - Updates and deletions by any client are strictly forbidden
     match /admins/{adminId} {
-      allow read: if isSignedIn();
-      allow write: if false;
+      allow read: if isSignedIn() && (
+        request.auth.uid == adminId || 
+        (adminId == 'sole_owner' && resource.data.uid == request.auth.uid)
+      );
+      allow create: if isSignedIn() && 
+                       adminId == 'sole_owner' && 
+                       !exists(/databases/$(database)/documents/admins/sole_owner) && 
+                       request.resource.data.uid == request.auth.uid;
+      allow update, delete: if false;
     }
 
     // Content reports: Readers can submit reports; only admin can review/moderate

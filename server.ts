@@ -45,7 +45,8 @@ async function startServer() {
   const PORT = Number(process.env.PORT || 3000);
 
   // Initialize Gemini AI SDK securely on the server with user agent telemetry
-  const apiKey = (process.env.GEMINI_API_KEY || '').trim();
+  const rawApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
+  const apiKey = rawApiKey.trim();
   const ai = apiKey
     ? new GoogleGenAI({
         apiKey,
@@ -62,7 +63,10 @@ async function startServer() {
   let lastValidQuote: ServerDailyQuote | null = null;
 
   async function generateQuoteWithGemini(dateStr: string, theme: string): Promise<ServerDailyQuote | null> {
-    if (!ai) return null;
+    if (!ai) {
+      console.warn('[DailyQuote] No GEMINI_API_KEY or GOOGLE_API_KEY configured on server. Falling back to curated quote.');
+      return null;
+    }
 
     const prompt = `Write a single, profound, human, natural original quote (1-2 sentences) about ${theme}.
 Requirements:
@@ -80,7 +84,7 @@ Requirements:
         );
 
         const apiPromise = ai.models.generateContent({
-          model: 'gemini-2.5-flash',
+          model: 'gemini-3.8-flash',
           contents: prompt,
           config: {
             systemInstruction: 'You are an award-winning literary author and poet writing reflective aphorisms for INOKORA. Output only the quote text.',
@@ -105,11 +109,35 @@ Requirements:
         }
       } catch (err: any) {
         const errMsg = err?.message || String(err);
-        if (errMsg.includes('401') || errMsg.includes('UNAUTHENTICATED') || errMsg.includes('API key not valid')) {
-          console.warn('[DailyQuote] Authentication error / invalid API key. Falling back to original curated quotes.');
-          break; // do not retry on 401
+        const status = err?.status || err?.statusCode;
+
+        if (
+          status === 401 ||
+          errMsg.includes('401') ||
+          errMsg.includes('UNAUTHENTICATED') ||
+          errMsg.includes('API key not valid') ||
+          errMsg.includes('ACCESS_TOKEN_TYPE_UNSUPPORTED')
+        ) {
+          console.warn('[DailyQuote] Authentication error / invalid API key (401 UNAUTHENTICATED / ACCESS_TOKEN_TYPE_UNSUPPORTED). Generative Language API rejected the configured credential. Falling back to curated quote.');
+          break; // Stop immediately on authentication failure
         }
-        console.error(`[DailyQuote] Generation attempt ${attempt}/${MAX_RETRIES} failed:`, errMsg);
+
+        if (
+          status === 403 ||
+          errMsg.includes('403') ||
+          errMsg.includes('PERMISSION_DENIED') ||
+          errMsg.includes('API_KEY_SERVICE_BLOCKED')
+        ) {
+          console.warn('[DailyQuote] Permission error / service blocked (403 PERMISSION_DENIED). Falling back to curated quote.');
+          break; // Stop immediately on permission error
+        }
+
+        if (status === 429 || errMsg.includes('429') || errMsg.includes('RESOURCE_EXHAUSTED')) {
+          console.warn(`[DailyQuote] Rate limit encountered (429). Attempt ${attempt}/${MAX_RETRIES}.`);
+        } else {
+          console.error(`[DailyQuote] Generation attempt ${attempt}/${MAX_RETRIES} failed:`, errMsg);
+        }
+
         if (attempt < MAX_RETRIES) {
           await new Promise((r) => setTimeout(r, 1200));
         }
@@ -249,165 +277,247 @@ Requirements:
     }
   });
 
-  // --- Admin Persistence & Endpoints ---
+  // --- Sole-Owner Administration & Security Engine ---
   const DATA_DIR = path.resolve(process.cwd(), 'data');
-  const ADMINS_FILE = path.join(DATA_DIR, 'admins.json');
+  const OWNER_FILE = path.join(DATA_DIR, 'owner.json');
 
-  function getStoredAdmins(): { uid: string; email: string; assignedAt: number; role: string }[] {
-    try {
-      if (!fs.existsSync(DATA_DIR)) {
-        fs.mkdirSync(DATA_DIR, { recursive: true });
-      }
-      if (fs.existsSync(ADMINS_FILE)) {
-        const raw = fs.readFileSync(ADMINS_FILE, 'utf8');
-        return JSON.parse(raw);
-      }
-    } catch (e) {
-      console.warn('[Admin Storage] Could not read admins file:', e);
-    }
-    return [];
+  interface SoleOwnerConfig {
+    ownerUid: string;
+    ownerEmail: string;
+    establishedAt: number;
+    locked: boolean;
   }
 
-  function saveStoredAdmins(admins: { uid: string; email: string; assignedAt: number; role: string }[]) {
-    try {
-      if (!fs.existsSync(DATA_DIR)) {
-        fs.mkdirSync(DATA_DIR, { recursive: true });
-      }
-      fs.writeFileSync(ADMINS_FILE, JSON.stringify(admins, null, 2), 'utf8');
-    } catch (e) {
-      console.error('[Admin Storage] Could not write admins file:', e);
-    }
-  }
-
-  // Helper to sync admin to Firestore REST API if possible
-  async function syncAdminToFirestore(uid: string, email: string) {
+  // Cryptographic Firebase ID Token verification via Google Identity Toolkit
+  async function verifyFirebaseIdToken(token: string): Promise<{ uid: string; email: string; emailVerified: boolean } | null> {
+    if (!token || typeof token !== 'string') return null;
     try {
       const configPath = path.resolve(process.cwd(), 'firebase-applet-config.json');
-      if (!fs.existsSync(configPath)) return;
+      if (!fs.existsSync(configPath)) return null;
       const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-      const url = `https://firestore.googleapis.com/v1/projects/${config.projectId}/databases/${config.firestoreDatabaseId}/documents/admins/${uid}?key=${config.apiKey}`;
-      await fetch(url, {
-        method: 'PATCH',
+      if (!config.apiKey) return null;
+
+      const response = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${config.apiKey}`, {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fields: {
-            uid: { stringValue: uid },
-            email: { stringValue: email },
-            assignedAt: { integerValue: String(Date.now()) },
-            role: { stringValue: 'admin' }
-          }
-        })
+        body: JSON.stringify({ idToken: token })
       });
-    } catch (e: any) {
-      console.warn('[Admin] Firestore admin sync skipped:', e?.message || e);
+
+      if (!response.ok) {
+        return null;
+      }
+
+      const data = await response.json();
+      const user = data.users?.[0];
+      if (!user || !user.localId) {
+        return null;
+      }
+
+      return {
+        uid: user.localId,
+        email: user.email || '',
+        emailVerified: !!user.emailVerified
+      };
+    } catch (err: any) {
+      console.warn('[Token Verification] Verification error:', err?.message || err);
+      return null;
     }
   }
 
-  // Admin Registration Endpoint (Atomic, secret-less)
-  let isRegistering = false;
-  app.post('/api/admin/register', async (req, res) => {
-    if (isRegistering) {
-      return res.status(429).json({ error: 'Another administrator registration is currently in progress.' });
-    }
-    isRegistering = true;
-    try {
-      const { uid, email } = req.body;
-      if (!uid || !email) {
-        return res.status(400).json({ error: 'UID and email are required.' });
-      }
-
-      const existingAdmins = getStoredAdmins();
-      if (existingAdmins.length > 0) {
-        return res.status(403).json({ error: 'An administrator is already registered for this installation.' });
-      }
-
-      const newAdmin = {
-        uid,
-        email,
-        assignedAt: Date.now(),
-        role: 'admin'
+  function getSoleOwner(): SoleOwnerConfig | null {
+    // 1. Check environment variable override (if author configured immutable UID in deployment env)
+    const envOwnerUid = process.env.OWNER_UID || process.env.INOKORA_OWNER_UID;
+    if (envOwnerUid && envOwnerUid.trim()) {
+      return {
+        ownerUid: envOwnerUid.trim(),
+        ownerEmail: process.env.OWNER_EMAIL || 'configured-owner@inokora.internal',
+        establishedAt: 0,
+        locked: true
       };
-      saveStoredAdmins([newAdmin]);
+    }
 
-      // Attempt background Firestore sync
-      syncAdminToFirestore(uid, email).catch(err => {
-        console.warn('[Admin Sync] Deferred Firestore sync notice:', err);
+    // 2. Check persisted owner.json
+    try {
+      if (fs.existsSync(OWNER_FILE)) {
+        const raw = fs.readFileSync(OWNER_FILE, 'utf8');
+        const parsed = JSON.parse(raw);
+        if (parsed.ownerUid) {
+          return parsed;
+        }
+      }
+    } catch (e) {
+      console.warn('[SoleOwner] Error reading owner.json:', e);
+    }
+
+    return null;
+  }
+
+  function saveSoleOwnerAtomic(config: { ownerUid: string; ownerEmail: string }): boolean {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+
+    // Double check that owner does not exist
+    if (getSoleOwner() !== null) {
+      return false;
+    }
+
+    const record: SoleOwnerConfig = {
+      ownerUid: config.ownerUid,
+      ownerEmail: config.ownerEmail,
+      establishedAt: Date.now(),
+      locked: true
+    };
+
+    // Use 'wx' flag for atomic exclusive creation - fails if file already exists
+    try {
+      fs.writeFileSync(OWNER_FILE, JSON.stringify(record, null, 2), { flag: 'wx' });
+      return true;
+    } catch (err: any) {
+      console.error('[SoleOwner] Atomic creation collision or failure:', err);
+      return false;
+    }
+  }
+
+  // Trusted Backend Authorization Middleware
+  async function requireOwner(req: express.Request, res: express.Response, next: express.NextFunction) {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Unauthorized: Authentication required. Missing Bearer token.' });
+    }
+
+    const token = authHeader.split('Bearer ')[1]?.trim();
+    if (!token) {
+      return res.status(401).json({ error: 'Unauthorized: Empty Bearer token.' });
+    }
+
+    const verified = await verifyFirebaseIdToken(token);
+    if (!verified) {
+      return res.status(401).json({ error: 'Unauthorized: Invalid or expired authentication token.' });
+    }
+
+    const soleOwner = getSoleOwner();
+    if (!soleOwner) {
+      return res.status(403).json({ 
+        error: 'Platform owner has not been configured yet. Controlled first-time setup required.',
+        setupRequired: true 
+      });
+    }
+
+    if (verified.uid !== soleOwner.ownerUid) {
+      logActivity({
+        type: 'UNAUTHORIZED_ADMIN_ATTEMPT',
+        description: `Rejected administrative access attempt from unauthorized account: ${verified.email || 'unknown'} (${verified.uid}) on ${req.method} ${req.path}`,
+        userId: verified.uid,
+        email: verified.email
+      });
+      return res.status(403).json({ 
+        error: 'Forbidden: Administrator privileges are strictly restricted to the sole platform owner.',
+        forbidden: true
+      });
+    }
+
+    (req as any).user = verified;
+    next();
+  }
+
+  // Public admin status check — Does NOT leak owner UID or email
+  app.get('/api/admin/status', (req, res) => {
+    const owner = getSoleOwner();
+    res.json({
+      ownerConfigured: owner !== null,
+      locked: owner !== null
+    });
+  });
+
+  // Backward-compatible check for admin existence
+  app.get('/api/admin/exists', (req, res) => {
+    const owner = getSoleOwner();
+    res.json({ exists: owner !== null });
+  });
+
+  // Secure First-Time Admin Setup (Atomic, single-claim, token-verified)
+  let isSettingUpOwner = false;
+  app.post('/api/admin/setup-owner', async (req, res) => {
+    if (isSettingUpOwner) {
+      return res.status(429).json({ error: 'An owner setup transaction is already in progress.' });
+    }
+    isSettingUpOwner = true;
+    try {
+      const authHeader = req.headers.authorization;
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({ error: 'Authentication token required to establish sole owner.' });
+      }
+      const token = authHeader.split('Bearer ')[1]?.trim();
+      const verified = await verifyFirebaseIdToken(token);
+      if (!verified) {
+        return res.status(401).json({ error: 'Invalid or expired user credentials.' });
+      }
+
+      // Re-verify that owner does not already exist
+      if (getSoleOwner() !== null) {
+        return res.status(403).json({ 
+          error: 'Platform owner is already configured and locked. Further registration is permanently disabled.' 
+        });
+      }
+
+      // Atomic exclusive creation
+      const saved = saveSoleOwnerAtomic({ ownerUid: verified.uid, ownerEmail: verified.email });
+      if (!saved) {
+        return res.status(403).json({ error: 'Failed to claim ownership: Sole owner is already configured.' });
+      }
+
+      logActivity({
+        type: 'SOLE_OWNER_ESTABLISHED',
+        description: `Platform sole owner established and permanently locked for ${verified.email} (${verified.uid})`,
+        userId: verified.uid,
+        email: verified.email
       });
 
-      console.log(`[Admin] Successfully registered primary administrator: ${email} (${uid})`);
-      res.json({ success: true, message: 'Administrator privileges granted.', isAdmin: true });
+      console.log(`[Admin Security] Sole platform owner established: ${verified.email} (${verified.uid})`);
+      res.json({
+        success: true,
+        message: 'Sole platform owner successfully verified and locked.',
+        ownerUid: verified.uid,
+        ownerEmail: verified.email
+      });
     } catch (err: any) {
-      console.error('[Admin Registration] Error:', err);
-      res.status(500).json({ error: err?.message || 'Registration failed.' });
+      console.error('[SoleOwner Setup] Error:', err);
+      res.status(500).json({ error: err?.message || 'Failed to establish owner.' });
     } finally {
-      isRegistering = false;
+      isSettingUpOwner = false;
     }
   });
 
-  // Admin Exists Endpoint
-  app.get('/api/admin/exists', async (req, res) => {
-    try {
-      const localAdmins = getStoredAdmins();
-      if (localAdmins.length > 0) {
-        return res.json({ exists: true });
-      }
-
-      // Check Firestore as fallback if available
-      try {
-        const configPath = path.resolve(process.cwd(), 'firebase-applet-config.json');
-        if (fs.existsSync(configPath)) {
-          const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-          const url = `https://firestore.googleapis.com/v1/projects/${config.projectId}/databases/${config.firestoreDatabaseId}/documents/admins?key=${config.apiKey}&pageSize=1`;
-          const response = await fetch(url);
-          if (response.ok) {
-            const data = await response.json();
-            if (Array.isArray(data.documents) && data.documents.length > 0) {
-              return res.json({ exists: true });
-            }
-          }
-        }
-      } catch {}
-
-      res.json({ exists: false });
-    } catch (e: any) {
-      res.status(500).json({ error: e?.message || 'Failed to check admin status.' });
-    }
-  });
-
-  // Check Admin Role
+  // Check Admin Role (Requires verified token)
   app.get('/api/admin/check-role', async (req, res) => {
-    const uid = String(req.query.uid || '');
-    if (!uid || uid === 'guest') {
-      return res.json({ isAdmin: false });
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.json({ isAdmin: false, isOwner: false, ownerConfigured: getSoleOwner() !== null });
     }
-    
-    try {
-      const localAdmins = getStoredAdmins();
-      if (localAdmins.some(a => a.uid === uid)) {
-        return res.json({ isAdmin: true });
-      }
-
-      // Fallback check in Firestore if possible
-      try {
-        const configPath = path.resolve(process.cwd(), 'firebase-applet-config.json');
-        if (fs.existsSync(configPath)) {
-          const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-          const url = `https://firestore.googleapis.com/v1/projects/${config.projectId}/databases/${config.firestoreDatabaseId}/documents/admins/${uid}?key=${config.apiKey}`;
-          const response = await fetch(url);
-          if (response.ok) {
-            return res.json({ isAdmin: true });
-          }
-        }
-      } catch {}
-
-      res.json({ isAdmin: false });
-    } catch (e) {
-      res.json({ isAdmin: false });
+    const token = authHeader.split('Bearer ')[1]?.trim();
+    const verified = await verifyFirebaseIdToken(token);
+    if (!verified) {
+      return res.json({ isAdmin: false, isOwner: false, ownerConfigured: getSoleOwner() !== null });
     }
+
+    const soleOwner = getSoleOwner();
+    if (!soleOwner) {
+      return res.json({ isAdmin: false, isOwner: false, ownerConfigured: false });
+    }
+
+    const isMatch = verified.uid === soleOwner.ownerUid;
+    return res.json({
+      isAdmin: isMatch,
+      isOwner: isMatch,
+      ownerConfigured: true,
+      uid: verified.uid,
+      email: verified.email
+    });
   });
 
-  // Admin Dashboard Overview
-  app.get('/api/admin/overview', async (req, res) => {
+  // Admin Dashboard Overview (Owner only)
+  app.get('/api/admin/overview', requireOwner, async (req, res) => {
     try {
       const configPath = path.resolve(process.cwd(), 'firebase-applet-config.json');
       if (fs.existsSync(configPath)) {
@@ -491,7 +601,7 @@ Requirements:
     }
   }
 
-  app.get('/api/admin/activity-logs', (req, res) => {
+  app.get('/api/admin/activity-logs', requireOwner, (req, res) => {
     try {
       const logs = getStoredActivityLogs();
       res.json(logs);
@@ -500,7 +610,7 @@ Requirements:
     }
   });
 
-  app.post('/api/admin/activity', (req, res) => {
+  app.post('/api/admin/activity', requireOwner, (req, res) => {
     try {
       const { type, description, userId, email, targetId } = req.body;
       if (!type || !description) {
@@ -513,7 +623,7 @@ Requirements:
     }
   });
 
-  app.get('/api/admin/users', async (req, res) => {
+  app.get('/api/admin/users', requireOwner, async (req, res) => {
     try {
       const configPath = path.resolve(process.cwd(), 'firebase-applet-config.json');
       if (!fs.existsSync(configPath)) {
@@ -599,7 +709,7 @@ Requirements:
     }
   });
 
-  app.post('/api/admin/users/:uid/status', async (req, res) => {
+  app.post('/api/admin/users/:uid/status', requireOwner, async (req, res) => {
     try {
       const uid = req.params.uid;
       const { status } = req.body; // 'active' or 'disabled'
@@ -614,7 +724,7 @@ Requirements:
     }
   });
 
-  app.delete('/api/admin/users/:uid', async (req, res) => {
+  app.delete('/api/admin/users/:uid', requireOwner, async (req, res) => {
     try {
       const uid = req.params.uid;
       logActivity({
@@ -714,7 +824,7 @@ Requirements:
     }
   }
 
-  app.get('/api/admin/storage/servers', (req, res) => {
+  app.get('/api/admin/storage/servers', requireOwner, (req, res) => {
     try {
       const servers = getStoredServers();
       const sanitized = servers.map(s => ({
@@ -728,7 +838,7 @@ Requirements:
     }
   });
 
-  app.post('/api/admin/storage/servers', (req, res) => {
+  app.post('/api/admin/storage/servers', requireOwner, (req, res) => {
     try {
       const { id, name, providerType, purpose, endpoint, bucket, publicUrl, accessKey, secretKey, region, status, isPreferred, notes } = req.body;
       if (!name || !providerType) {
@@ -800,7 +910,7 @@ Requirements:
     }
   });
 
-  app.delete('/api/admin/storage/servers/:id', (req, res) => {
+  app.delete('/api/admin/storage/servers/:id', requireOwner, (req, res) => {
     try {
       const serverId = req.params.id;
       const servers = getStoredServers();
@@ -827,7 +937,7 @@ Requirements:
     }
   });
 
-  app.post('/api/admin/storage/servers/:id/test', async (req, res) => {
+  app.post('/api/admin/storage/servers/:id/test', requireOwner, async (req, res) => {
     try {
       const serverId = req.params.id;
       const servers = getStoredServers();
@@ -886,7 +996,7 @@ Requirements:
     }
   });
 
-  app.get('/api/admin/storage/overview', (req, res) => {
+  app.get('/api/admin/storage/overview', requireOwner, (req, res) => {
     try {
       const servers = getStoredServers();
       const files = getStoredFiles();
@@ -931,7 +1041,7 @@ Requirements:
     }
   });
 
-  app.get('/api/admin/storage/files', (req, res) => {
+  app.get('/api/admin/storage/files', requireOwner, (req, res) => {
     try {
       const files = getStoredFiles();
       res.json(files);

@@ -113,18 +113,20 @@ export const Navbar: React.FC<NavbarProps> = ({
             <span>Cover Studio</span>
           </button>
 
-          {/* Admin link */}
-          <button
-            onClick={() => handleNavClick('admin')}
-            className={`p-2 rounded-lg transition-colors ${
-              currentPage === 'admin'
-                ? 'bg-rose-900/80 text-rose-200 border border-rose-800'
-                : 'bg-stone-800/60 hover:bg-stone-800 text-stone-300'
-            }`}
-            title="Admin & Moderation Panel"
-          >
-            <ShieldAlert className="w-4 h-4 text-rose-400" />
-          </button>
+          {/* Admin link — strictly shown only for authenticated verified owner */}
+          {user.isAdmin && (
+            <button
+              onClick={() => handleNavClick('admin')}
+              className={`p-2 rounded-lg transition-colors ${
+                currentPage === 'admin'
+                  ? 'bg-rose-900/80 text-rose-200 border border-rose-800'
+                  : 'bg-stone-800/60 hover:bg-stone-800 text-stone-300'
+              }`}
+              title="Admin & Moderation Panel"
+            >
+              <ShieldAlert className="w-4 h-4 text-rose-400" />
+            </button>
+          )}
 
           <button
             onClick={() => handleNavClick('settings')}

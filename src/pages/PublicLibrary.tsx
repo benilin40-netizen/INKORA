@@ -13,21 +13,7 @@ interface PublicLibraryProps {
   onToggleLike: (storyId: string) => void;
 }
 
-const GENRES: Genre[] = [
-  'Romance',
-  'Fantasy',
-  'Mystery',
-  'Adventure',
-  'Thriller',
-  'Science Fiction',
-  'Drama',
-  'Horror',
-  'Poetry',
-  'Short Stories',
-  'Historical Fiction',
-  'Literary Fiction',
-  'Cyberpunk'
-];
+
 
 export const PublicLibrary: React.FC<PublicLibraryProps> = ({
   stories,
@@ -38,7 +24,6 @@ export const PublicLibrary: React.FC<PublicLibraryProps> = ({
   onToggleLike
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedGenre, setSelectedGenre] = useState<string>('All');
   const [sortBy, setSortBy] = useState<'recent' | 'alphabetical'>('recent');
   const [bookshelfStatusMap, setBookshelfStatusMap] = useState<Record<string, BookshelfStatus>>(() => {
     const map: Record<string, BookshelfStatus> = {};
@@ -61,8 +46,7 @@ export const PublicLibrary: React.FC<PublicLibraryProps> = ({
       story.synopsis.toLowerCase().includes(searchTerm.toLowerCase()) ||
       story.authorName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (story.tags && story.tags.some(t => t.toLowerCase().includes(searchTerm.toLowerCase())));
-    const matchesGenre = selectedGenre === 'All' || story.genre === selectedGenre;
-    return matchesSearch && matchesGenre;
+    return matchesSearch;
   });
 
   const sorted = [...filtered].sort((a, b) => {
@@ -118,32 +102,7 @@ export const PublicLibrary: React.FC<PublicLibraryProps> = ({
             </div>
           </div>
 
-          {/* Genre Scroll Strip */}
-          <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-thin">
-            <button
-              onClick={() => setSelectedGenre('All')}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-medium whitespace-nowrap transition-colors ${
-                selectedGenre === 'All'
-                  ? 'bg-rose-900/60 text-rose-200 border border-rose-800/60 shadow-inner'
-                  : 'bg-[#141210] text-stone-400 hover:text-stone-200 border border-stone-800'
-              }`}
-            >
-              All Genres
-            </button>
-            {GENRES.map(g => (
-              <button
-                key={g}
-                onClick={() => setSelectedGenre(g)}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-medium whitespace-nowrap transition-colors ${
-                  selectedGenre === g
-                    ? 'bg-rose-900/60 text-rose-200 border border-rose-800/60 shadow-inner'
-                    : 'bg-[#141210] text-stone-400 hover:text-stone-200 border border-stone-800'
-                }`}
-              >
-                {g}
-              </button>
-            ))}
-          </div>
+
         </div>
 
         {/* Stories Listing */}
@@ -152,8 +111,8 @@ export const PublicLibrary: React.FC<PublicLibraryProps> = ({
             <BookOpen className="w-12 h-12 text-stone-600 mx-auto mb-4" />
             <h3 className="text-lg font-serif font-medium text-stone-200 mb-1">No published stories found</h3>
             <p className="text-stone-400 text-sm max-w-sm mx-auto">
-              {searchTerm || selectedGenre !== 'All'
-                ? 'Try clearing your search filter or selecting another genre.'
+              {searchTerm
+                ? 'Try clearing your search filter.'
                 : 'Be the first author to publish a public story to the library.'}
             </p>
           </div>

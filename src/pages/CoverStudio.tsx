@@ -1,13 +1,15 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { 
   ArrowLeft, Download, Save, Undo, Redo, RotateCcw, Image as ImageIcon, 
-  Upload, Check, AlertCircle, Sparkles, Eye, Palette, Type, Sliders, 
+  Upload, Check, AlertCircle, Sparkles, Eye, EyeOff, Palette, Type, Sliders, 
   Layout, Layers, Move, Copy, Trash2, Lock, Unlock, ZoomIn, ZoomOut, 
   Maximize, Grid, BookOpen, ChevronRight, ChevronDown, AlignLeft, 
   AlignCenter, AlignRight, Plus, Square, Circle, Minus, Maximize2, 
-  ExternalLink, Frame, RefreshCw, X
+  ExternalLink, Frame, RefreshCw, X, PanelLeftClose, PanelLeftOpen,
+  PanelRightClose, PanelRightOpen, FileImage, Wand2, ShieldAlert
 } from 'lucide-react';
 import { Story, CoverConfig, CoverElement, CoverElementType, User } from '../types';
+import { AIService } from '../services/ai';
 
 interface CoverStudioProps {
   stories: Story[];
@@ -28,7 +30,8 @@ interface CanvasPreset {
 }
 
 const CANVAS_PRESETS: CanvasPreset[] = [
-  { id: 'digital-std', name: 'Digital Standard (2:3)', width: 1600, height: 2400, aspect: '2/3', description: 'Amazon KDP, Apple Books & standard digital publishing' },
+  { id: 'portrait-ebook', name: 'Portrait eBook (1600 × 2560)', width: 1600, height: 2560, aspect: '5/8', description: 'Amazon KDP, Apple Books & standard digital publishing' },
+  { id: 'digital-std', name: 'Digital Standard (2:3)', width: 1600, height: 2400, aspect: '2/3', description: 'Standard 2:3 digital manuscript cover' },
   { id: 'compact-reader', name: 'Compact Reader (3:4)', width: 1200, height: 1600, aspect: '3/4', description: 'Tablets, e-readers and preview cards' },
   { id: 'print-6x9', name: 'Print Trade 6×9 (2:3)', width: 1800, height: 2700, aspect: '2/3', description: 'Standard paperback front cover' },
   { id: 'square', name: 'Audiobook & Square (1:1)', width: 1600, height: 1600, aspect: '1/1', description: 'Audiobook and square promotional editions' },
@@ -449,10 +452,84 @@ const TEMPLATES: TemplatePreset[] = [
     ]
   },
   {
+    id: 'gothic-horror',
+    name: 'Gothic Horror & Dark Macabre',
+    genreTag: 'Horror',
+    description: 'Blood moon gradients, unsettling shadows, and dramatic gothic typography.',
+    bgType: 'gradient',
+    bgColor: '#160205',
+    bgGradient: 'linear-gradient(135deg, #2b050a 0%, #110103 50%, #050001 100%)',
+    overlayPattern: 'vignette',
+    overlayOpacity: 0.75,
+    elements: [
+      {
+        type: 'text',
+        name: 'Warning Badge',
+        textRole: 'badge',
+        content: 'ENTER AT YOUR OWN PERIL',
+        x: 10,
+        y: 15,
+        width: 80,
+        fontFamily: 'Cinzel Decorative',
+        fontSize: 13,
+        fontWeight: 700,
+        textAlign: 'center',
+        letterSpacing: 4,
+        color: '#f87171',
+      },
+      {
+        type: 'text',
+        name: 'Book Title',
+        textRole: 'title',
+        content: 'The Manor of Bleeding Shadows',
+        x: 8,
+        y: 38,
+        width: 84,
+        fontFamily: 'Cinzel Decorative',
+        fontSize: 48,
+        fontWeight: 700,
+        textAlign: 'center',
+        lineHeight: 1.15,
+        color: '#fecaca',
+        textShadow: '0 0 30px rgba(220, 38, 38, 0.6), 0 2px 10px #000000',
+      },
+      {
+        type: 'text',
+        name: 'Subtitle',
+        textRole: 'subtitle',
+        content: 'Some doors were never meant to be unlocked.',
+        x: 10,
+        y: 62,
+        width: 80,
+        fontFamily: 'Cormorant Garamond',
+        fontSize: 16,
+        fontStyle: 'italic',
+        textAlign: 'center',
+        color: '#d1d5db',
+      },
+      {
+        type: 'text',
+        name: 'Author Name',
+        textRole: 'author',
+        content: 'Silas Blackwood',
+        x: 10,
+        y: 84,
+        width: 80,
+        fontFamily: 'Cinzel',
+        fontSize: 22,
+        fontWeight: 700,
+        textAlign: 'center',
+        letterSpacing: 6,
+        color: '#f87171',
+        textTransform: 'uppercase',
+      }
+    ]
+  },
+  {
     id: 'sci-fi-cyber',
     name: 'Science Fiction & Cyberpunk',
     genreTag: 'Sci-Fi',
-    description: 'Sleek geometric typography, dark grid gridlines, and emerald/cyan accents.',
+    description: 'Sleek geometric typography, dark grid lines, and cyan/emerald accents.',
     bgType: 'gradient',
     bgColor: '#06111a',
     bgGradient: 'linear-gradient(135deg, #05141e 0%, #0d2838 50%, #04090f 100%)',
@@ -523,41 +600,42 @@ const TEMPLATES: TemplatePreset[] = [
     ]
   },
   {
-    id: 'historical-memoir',
-    name: 'Historical Fiction & Memoir',
-    genreTag: 'Historical',
-    description: 'Archival warm gold and sepia tones, dignified Garamond typography, and classic divider.',
+    id: 'fine-poetry',
+    name: 'Fine Poetry & Verse',
+    genreTag: 'Poetry',
+    description: 'Archival parchment tones, delicate italic typography, and subtle framing.',
     bgType: 'gradient',
     bgColor: '#1c1713',
     bgGradient: 'linear-gradient(135deg, #261f18 0%, #3a2e23 50%, #15110d 100%)',
     overlayPattern: 'vignette',
-    overlayOpacity: 0.45,
+    overlayOpacity: 0.35,
     elements: [
       {
         type: 'frame',
-        name: 'Double Archival Frame',
-        x: 6,
-        y: 6,
-        width: 88,
-        height: 88,
+        name: 'Subtle Frame',
+        x: 8,
+        y: 8,
+        width: 84,
+        height: 84,
         strokeColor: '#d4af37',
-        strokeWidth: 1.5,
-        opacity: 0.4,
+        strokeWidth: 1,
+        opacity: 0.3,
         locked: true,
       },
       {
         type: 'text',
         name: 'Book Title',
         textRole: 'title',
-        content: 'The Silk Merchant of Florence',
+        content: 'Whispers in the Amber Hour',
         x: 8,
-        y: 35,
+        y: 36,
         width: 84,
-        fontFamily: 'EB Garamond',
-        fontSize: 50,
-        fontWeight: 700,
+        fontFamily: 'Cormorant Garamond',
+        fontSize: 44,
+        fontWeight: 600,
+        fontStyle: 'italic',
         textAlign: 'center',
-        lineHeight: 1.15,
+        lineHeight: 1.2,
         color: '#fef3c7',
         textShadow: '0 2px 10px rgba(0,0,0,0.8)',
       },
@@ -565,11 +643,11 @@ const TEMPLATES: TemplatePreset[] = [
         type: 'text',
         name: 'Subtitle',
         textRole: 'subtitle',
-        content: 'A Chronicle of the Renaissance Guilds',
+        content: 'Collected Verses on Solitude & Light',
         x: 10,
-        y: 56,
+        y: 60,
         width: 80,
-        fontFamily: 'Lora',
+        fontFamily: 'Playfair Display',
         fontSize: 16,
         fontStyle: 'italic',
         textAlign: 'center',
@@ -579,61 +657,244 @@ const TEMPLATES: TemplatePreset[] = [
         type: 'text',
         name: 'Author Name',
         textRole: 'author',
-        content: 'Matteo Bellini',
+        content: 'Julian Vane',
         x: 10,
         y: 84,
         width: 80,
-        fontFamily: 'Cinzel',
-        fontSize: 22,
-        fontWeight: 600,
+        fontFamily: 'Cormorant Garamond',
+        fontSize: 20,
+        fontStyle: 'italic',
         textAlign: 'center',
-        letterSpacing: 6,
+        letterSpacing: 4,
         color: '#fef3c7',
-        textTransform: 'uppercase',
       }
     ]
   },
   {
-    id: 'blank-slate',
-    name: 'Blank Canvas',
-    genreTag: 'Custom',
-    description: 'Pure obsidian slate ready for completely customized author design.',
+    id: 'children-whimsical',
+    name: "Children's Whimsical Tales",
+    genreTag: "Children's",
+    description: 'Playful vibrant typography, warm storytelling composition, and bright charm.',
     bgType: 'gradient',
-    bgColor: '#0f0e0d',
-    bgGradient: 'linear-gradient(135deg, #1c1917 0%, #09090b 100%)',
-    overlayPattern: 'none',
-    overlayOpacity: 0,
+    bgColor: '#0f172a',
+    bgGradient: 'linear-gradient(135deg, #1e293b 0%, #0f172a 50%, #090d16 100%)',
+    overlayPattern: 'stars',
+    overlayOpacity: 0.2,
     elements: [
+      {
+        type: 'text',
+        name: 'Magical Badge',
+        textRole: 'badge',
+        content: '✨ AN ENCHANTED ADVENTURE ✨',
+        x: 10,
+        y: 14,
+        width: 80,
+        fontFamily: 'Montserrat',
+        fontSize: 14,
+        fontWeight: 700,
+        textAlign: 'center',
+        letterSpacing: 2,
+        color: '#fbbf24',
+      },
       {
         type: 'text',
         name: 'Book Title',
         textRole: 'title',
-        content: 'Your Book Title',
-        x: 10,
-        y: 40,
-        width: 80,
+        content: 'The Dragon Who Forgot How to Fly',
+        x: 6,
+        y: 35,
+        width: 88,
         fontFamily: 'Playfair Display',
         fontSize: 48,
         fontWeight: 700,
         textAlign: 'center',
-        lineHeight: 1.2,
-        color: '#f5f5f4',
+        lineHeight: 1.15,
+        color: '#fdf6e2',
+        textShadow: '0 4px 20px rgba(0,0,0,0.8)',
+      },
+      {
+        type: 'text',
+        name: 'Subtitle',
+        textRole: 'subtitle',
+        content: 'Illustrated by Maya Lin',
+        x: 10,
+        y: 62,
+        width: 80,
+        fontFamily: 'Lora',
+        fontSize: 16,
+        fontStyle: 'italic',
+        textAlign: 'center',
+        color: '#93c5fd',
       },
       {
         type: 'text',
         name: 'Author Name',
         textRole: 'author',
-        content: 'Author Name',
+        content: 'Oliver P. Finch',
         x: 10,
-        y: 82,
+        y: 84,
+        width: 80,
+        fontFamily: 'Montserrat',
+        fontSize: 22,
+        fontWeight: 700,
+        textAlign: 'center',
+        letterSpacing: 3,
+        color: '#fbbf24',
+        textTransform: 'uppercase',
+      }
+    ]
+  },
+  {
+    id: 'non-fiction',
+    name: 'Professional Non-Fiction & Business',
+    genreTag: 'Non-Fiction',
+    description: 'Structured clean layout, bold modern sans typography, authoritative tone.',
+    bgType: 'gradient',
+    bgColor: '#0f172a',
+    bgGradient: 'linear-gradient(135deg, #111827 0%, #1f2937 50%, #030712 100%)',
+    overlayPattern: 'grid',
+    overlayOpacity: 0.25,
+    elements: [
+      {
+        type: 'text',
+        name: 'Category Badge',
+        textRole: 'badge',
+        content: 'MASTERING STRATEGY & LEADERSHIP',
+        x: 10,
+        y: 12,
+        width: 80,
+        fontFamily: 'Montserrat',
+        fontSize: 12,
+        fontWeight: 700,
+        textAlign: 'center',
+        letterSpacing: 4,
+        color: '#38bdf8',
+        textTransform: 'uppercase',
+      },
+      {
+        type: 'text',
+        name: 'Book Title',
+        textRole: 'title',
+        content: 'THE DISCIPLINE OF FOCUS',
+        x: 6,
+        y: 36,
+        width: 88,
+        fontFamily: 'Montserrat',
+        fontSize: 52,
+        fontWeight: 900,
+        textAlign: 'center',
+        lineHeight: 1.1,
+        letterSpacing: 2,
+        color: '#ffffff',
+        textShadow: '0 4px 15px rgba(0,0,0,0.9)',
+      },
+      {
+        type: 'line',
+        name: 'Accent Line',
+        x: 30,
+        y: 58,
+        width: 40,
+        height: 2,
+        fillColor: '#38bdf8',
+        opacity: 0.8,
+      },
+      {
+        type: 'text',
+        name: 'Subtitle',
+        textRole: 'subtitle',
+        content: 'How High Performers Outthink Distraction',
+        x: 10,
+        y: 64,
+        width: 80,
+        fontFamily: 'Montserrat',
+        fontSize: 16,
+        fontWeight: 500,
+        textAlign: 'center',
+        color: '#94a3b8',
+      },
+      {
+        type: 'text',
+        name: 'Author Name',
+        textRole: 'author',
+        content: 'ARTHUR V. PENDLETON',
+        x: 10,
+        y: 84,
         width: 80,
         fontFamily: 'Montserrat',
         fontSize: 20,
+        fontWeight: 700,
+        textAlign: 'center',
+        letterSpacing: 6,
+        color: '#ffffff',
+      }
+    ]
+  },
+  {
+    id: 'timeless-classic',
+    name: 'Timeless Classic',
+    genreTag: 'Classic',
+    description: 'Restrained colors, balanced spacing, and timeless archival typography.',
+    bgType: 'gradient',
+    bgColor: '#1c1917',
+    bgGradient: 'linear-gradient(135deg, #292524 0%, #1c1917 50%, #0c0a09 100%)',
+    overlayPattern: 'vignette',
+    overlayOpacity: 0.3,
+    elements: [
+      {
+        type: 'frame',
+        name: 'Classic Frame',
+        x: 6,
+        y: 6,
+        width: 88,
+        height: 88,
+        strokeColor: '#e7e5e4',
+        strokeWidth: 1,
+        opacity: 0.3,
+        locked: true,
+      },
+      {
+        type: 'text',
+        name: 'Book Title',
+        textRole: 'title',
+        content: 'The Odyssey of Common Days',
+        x: 8,
+        y: 35,
+        width: 84,
+        fontFamily: 'EB Garamond',
+        fontSize: 48,
+        fontWeight: 700,
+        textAlign: 'center',
+        lineHeight: 1.15,
+        color: '#f5f5f4',
+      },
+      {
+        type: 'text',
+        name: 'Subtitle',
+        textRole: 'subtitle',
+        content: 'An American Masterpiece',
+        x: 10,
+        y: 58,
+        width: 80,
+        fontFamily: 'Georgia',
+        fontSize: 16,
+        fontStyle: 'italic',
+        textAlign: 'center',
+        color: '#a8a29e',
+      },
+      {
+        type: 'text',
+        name: 'Author Name',
+        textRole: 'author',
+        content: 'Nathaniel Hawthorne',
+        x: 10,
+        y: 84,
+        width: 80,
+        fontFamily: 'Georgia',
+        fontSize: 22,
         fontWeight: 600,
         textAlign: 'center',
         letterSpacing: 4,
-        color: '#d6d3d1',
-        textTransform: 'uppercase',
+        color: '#e7e5e4',
       }
     ]
   }
@@ -805,10 +1066,13 @@ export const CoverStudio: React.FC<CoverStudioProps> = ({
 
   // Selection & UI Panels
   const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
-  const [leftTab, setLeftTab] = useState<'templates' | 'elements' | 'artwork' | 'typography' | 'layers'>('templates');
+  const [leftTab, setLeftTab] = useState<'templates' | 'elements' | 'artwork' | 'typography' | 'layers' | 'ai'>('templates');
+  const [isLeftPanelOpen, setIsLeftPanelOpen] = useState<boolean>(true);
+  const [isRightPanelOpen, setIsRightPanelOpen] = useState<boolean>(true);
   const [zoomLevel, setZoomLevel] = useState<number>(100);
   const [showGuides, setShowGuides] = useState<boolean>(true);
   const [showSafeMargins, setShowSafeMargins] = useState<boolean>(true);
+  const [showGrid, setShowGrid] = useState<boolean>(false);
   const [previewMode, setPreviewMode] = useState<'none' | 'distraction-free' | '3d-mockup'>('none');
   
   // Save & Export Status
@@ -816,6 +1080,15 @@ export const CoverStudio: React.FC<CoverStudioProps> = ({
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState<boolean>(false);
   const [exportScale, setExportScale] = useState<number>(1);
+  const [exportFormat, setExportFormat] = useState<'png' | 'jpeg'>('png');
+  const [customWidth, setCustomWidth] = useState<number>(cover.width || 1600);
+  const [customHeight, setCustomHeight] = useState<number>(cover.height || 2560);
+  const [recoverableDraft, setRecoverableDraft] = useState<{ cover: CoverConfig; savedAt: number } | null>(null);
+
+  // AI Cover Suggestions
+  const [aiSuggestions, setAiSuggestions] = useState<any | null>(null);
+  const [aiLoading, setAiLoading] = useState<boolean>(false);
+  const [aiError, setAiError] = useState<string | null>(null);
 
   // Canvas Refs & Dragging
   const canvasContainerRef = useRef<HTMLDivElement>(null);
@@ -836,6 +1109,21 @@ export const CoverStudio: React.FC<CoverStudioProps> = ({
 
   const selectedElement = cover.elements?.find(e => e.id === selectedElementId);
 
+  // Check for local recovery draft on story switch
+  useEffect(() => {
+    if (activeStoryId) {
+      try {
+        const raw = localStorage.getItem(`inokora_cover_draft_${activeStoryId}`);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && parsed.cover && parsed.savedAt > (currentStory?.updatedAt || 0) + 2000) {
+            setRecoverableDraft(parsed);
+          }
+        }
+      } catch {}
+    }
+  }, [activeStoryId]);
+
   // Sync when active story switches
   useEffect(() => {
     if (currentStory) {
@@ -843,9 +1131,11 @@ export const CoverStudio: React.FC<CoverStudioProps> = ({
         setCover({
           ...currentStory.cover,
           width: currentStory.cover.width || 1600,
-          height: currentStory.cover.height || 2400,
+          height: currentStory.cover.height || 2560,
           elements: createElementsFromLegacy(currentStory.cover)
         });
+        setCustomWidth(currentStory.cover.width || 1600);
+        setCustomHeight(currentStory.cover.height || 2560);
       } else {
         const tpl = TEMPLATES[0];
         setCover({
@@ -865,9 +1155,11 @@ export const CoverStudio: React.FC<CoverStudioProps> = ({
           titlePosition: { x: 50, y: 35 },
           authorPosition: { x: 50, y: 84 },
           width: 1600,
-          height: 2400,
+          height: 2560,
           elements: tpl.elements.map((el, i) => ({ ...el, id: `el_${Date.now()}_${i}` }))
         });
+        setCustomWidth(1600);
+        setCustomHeight(2560);
       }
       setSelectedElementId(null);
       setHistory([]);
@@ -875,6 +1167,20 @@ export const CoverStudio: React.FC<CoverStudioProps> = ({
       setSaveStatus('saved');
     }
   }, [activeStoryId]);
+
+  // Autosave to local recovery draft when unsaved
+  useEffect(() => {
+    if (!activeStoryId || saveStatus !== 'unsaved') return;
+    const timer = setTimeout(() => {
+      try {
+        localStorage.setItem(
+          `inokora_cover_draft_${activeStoryId}`,
+          JSON.stringify({ cover, savedAt: Date.now() })
+        );
+      } catch {}
+    }, 1200);
+    return () => clearTimeout(timer);
+  }, [cover, activeStoryId, saveStatus]);
 
   // Toast feedback helper
   const showToast = (msg: string) => {
@@ -978,10 +1284,55 @@ export const CoverStudio: React.FC<CoverStudioProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedElementId, cover, history, redoStack]);
 
-  // Load a template
+  // Reliable Template Selection & Application Function
   const handleApplyTemplate = (tpl: TemplatePreset) => {
-    if (confirm(`Apply the "${tpl.name}" template? Your canvas elements will be replaced with this editable layout.`)) {
-      updateCover(prev => ({
+    console.log('[CoverStudio] Template click received for ID:', tpl?.id, 'Name:', tpl?.name);
+    
+    // 1. Validate template object
+    if (!tpl || !tpl.id || !Array.isArray(tpl.elements)) {
+      console.error('[CoverStudio] Template validation failed: Invalid template object', tpl);
+      showToast('Error: Selected template configuration is invalid.');
+      return;
+    }
+
+    console.log('[CoverStudio] Template validation passed. Applying design configuration to active cover...');
+
+    // 2. Update cover state with template configuration while preserving user content
+    updateCover(prev => {
+      const existingTitleEl = prev.elements?.find(e => e.textRole === 'title');
+      const existingAuthorEl = prev.elements?.find(e => e.textRole === 'author');
+      const existingSubEl = prev.elements?.find(e => e.textRole === 'subtitle');
+
+      const updatedElements = tpl.elements.map((el, i) => {
+        let content = el.content;
+        if (el.textRole === 'title' && existingTitleEl?.content) {
+          content = existingTitleEl.content;
+        } else if (el.textRole === 'title' && currentStory?.title) {
+          content = currentStory.title;
+        }
+
+        if (el.textRole === 'author' && existingAuthorEl?.content) {
+          content = existingAuthorEl.content;
+        } else if (el.textRole === 'author' && currentStory?.authorName) {
+          content = currentStory.authorName;
+        } else if (el.textRole === 'author' && defaultAuthor) {
+          content = defaultAuthor;
+        }
+
+        if (el.textRole === 'subtitle' && existingSubEl?.content) {
+          content = existingSubEl.content;
+        }
+
+        return {
+          ...el,
+          id: `el_${tpl.id}_${Date.now()}_${i}`,
+          content
+        };
+      });
+
+      console.log('[CoverStudio] Active design state successfully updated. New templateId:', tpl.id, 'Elements count:', updatedElements.length);
+
+      return {
         ...prev,
         templateId: tpl.id,
         bgType: tpl.bgType,
@@ -990,24 +1341,12 @@ export const CoverStudio: React.FC<CoverStudioProps> = ({
         bgImage: tpl.bgImage || '',
         overlayPattern: tpl.overlayPattern,
         overlayOpacity: tpl.overlayOpacity,
-        elements: tpl.elements.map((el, i) => {
-          let content = el.content;
-          // Dynamically preserve current story's title and author
-          if (el.textRole === 'title' && currentStory?.title) {
-            content = currentStory.title;
-          } else if (el.textRole === 'author' && currentStory?.authorName) {
-            content = currentStory.authorName;
-          }
-          return {
-            ...el,
-            id: `el_${Date.now()}_${i}`,
-            content
-          };
-        })
-      }));
-      setSelectedElementId(null);
-      showToast(`Applied "${tpl.name}" template`);
-    }
+        elements: updatedElements
+      };
+    });
+
+    setSelectedElementId(null);
+    showToast(`Applied "${tpl.name}" template successfully.`);
   };
 
   // Add a new element to canvas
@@ -1156,6 +1495,79 @@ export const CoverStudio: React.FC<CoverStudioProps> = ({
     }));
   };
 
+  const handleToggleHide = (id: string) => {
+    updateCover(prev => ({
+      ...prev,
+      elements: (prev.elements || []).map(el => el.id === id ? { ...el, hidden: !el.hidden } : el)
+    }));
+    showToast('Toggled element visibility');
+  };
+
+  const handleBringToFront = (id: string) => {
+    const elements = [...(cover.elements || [])];
+    const index = elements.findIndex(e => e.id === id);
+    if (index === -1 || index === elements.length - 1) return;
+    const [el] = elements.splice(index, 1);
+    elements.push(el);
+    updateCover(prev => ({ ...prev, elements }));
+    showToast('Brought element to front');
+  };
+
+  const handleSendToBack = (id: string) => {
+    const elements = [...(cover.elements || [])];
+    const index = elements.findIndex(e => e.id === id);
+    if (index === -1 || index === 0) return;
+    const [el] = elements.splice(index, 1);
+    elements.unshift(el);
+    updateCover(prev => ({ ...prev, elements }));
+    showToast('Sent element to back');
+  };
+
+  const handleGenerateAISuggestions = async () => {
+    setAiLoading(true);
+    setAiError(null);
+    try {
+      const suggestions = await AIService.generateCoverSuggestions(
+        currentStory?.title || cover.title || 'Untitled Book',
+        currentStory?.genre || cover.genre || 'Fiction',
+        currentStory?.synopsis || currentStory?.description || ''
+      );
+      setAiSuggestions(suggestions);
+      showToast('Generated cover design suggestions!');
+    } catch (err: any) {
+      setAiError(err?.message || 'Failed to generate suggestions. You can design manually.');
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const handleApplyAISuggestion = (suggestion: any) => {
+    updateCover(prev => ({
+      ...prev,
+      bgColor: suggestion.bgColor || prev.bgColor,
+      bgGradient: suggestion.bgGradient || prev.bgGradient,
+      bgType: suggestion.bgGradient ? 'gradient' : prev.bgType,
+      elements: (prev.elements || []).map(el => {
+        if (el.textRole === 'title') {
+          return {
+            ...el,
+            color: suggestion.titleColor || el.color,
+            fontFamily: suggestion.fontFamily || el.fontFamily
+          };
+        }
+        if (el.textRole === 'author') {
+          return {
+            ...el,
+            color: suggestion.authorColor || el.color,
+            fontFamily: suggestion.fontFamily || el.fontFamily
+          };
+        }
+        return el;
+      })
+    }));
+    showToast(`Applied "${suggestion.paletteName}" styling to cover!`);
+  };
+
   // Image Upload Handlers
   const handleUploadImageFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1192,11 +1604,18 @@ export const CoverStudio: React.FC<CoverStudioProps> = ({
   };
 
   // -------------------------------------------------------------
-  // High-Resolution Native Canvas Exporter
+  // High-Resolution Native Canvas Exporter (PNG & JPEG)
   // -------------------------------------------------------------
-  const generateExportDataUrl = async (scale = 1): Promise<string> => {
-    const targetW = (cover.width || 1600) * scale;
-    const targetH = (cover.height || 2400) * scale;
+  const generateExportDataUrl = async (format: 'png' | 'jpeg' = 'png', scale = 1): Promise<string> => {
+    // Wait for fonts to finish loading
+    if ('fonts' in document) {
+      try {
+        await (document as any).fonts.ready;
+      } catch {}
+    }
+
+    const targetW = Math.round((cover.width || 1600) * scale);
+    const targetH = Math.round((cover.height || 2560) * scale);
 
     const offscreen = document.createElement('canvas');
     offscreen.width = targetW;
@@ -1204,25 +1623,34 @@ export const CoverStudio: React.FC<CoverStudioProps> = ({
     const ctx = offscreen.getContext('2d');
     if (!ctx) throw new Error('Canvas 2D context unavailable.');
 
-    // 1. Fill Background
-    if (cover.bgType === 'color') {
+    // 1. Fill Background (JPEG requires solid non-transparent base)
+    if (format === 'jpeg' || cover.bgType === 'color') {
       ctx.fillStyle = cover.bgColor || '#141210';
       ctx.fillRect(0, 0, targetW, targetH);
-    } else if (cover.bgType === 'gradient' || !cover.bgImage) {
-      // Parse or simulate linear gradient
+    }
+
+    if (cover.bgType === 'gradient' || (!cover.bgImage && cover.bgType !== 'color')) {
       const grad = ctx.createLinearGradient(0, 0, targetW, targetH);
-      if (cover.bgGradient.includes('#09090b') || cover.bgGradient.includes('#1c1917')) {
+      if (cover.bgGradient?.includes('#09090b') || cover.bgGradient?.includes('#1c1917')) {
         grad.addColorStop(0, '#1c1917');
         grad.addColorStop(0.5, '#12100e');
         grad.addColorStop(1, '#09090b');
-      } else if (cover.bgGradient.includes('#2b0b18')) {
+      } else if (cover.bgGradient?.includes('#2b0b18') || cover.bgGradient?.includes('#200b14')) {
         grad.addColorStop(0, '#2b0b18');
         grad.addColorStop(0.5, '#4a1329');
         grad.addColorStop(1, '#15050c');
-      } else if (cover.bgGradient.includes('#071320')) {
+      } else if (cover.bgGradient?.includes('#071320') || cover.bgGradient?.includes('#08131e')) {
         grad.addColorStop(0, '#071320');
         grad.addColorStop(0.5, '#12283e');
         grad.addColorStop(1, '#04080e');
+      } else if (cover.bgGradient?.includes('#2b050a') || cover.bgGradient?.includes('#160205')) {
+        grad.addColorStop(0, '#2b050a');
+        grad.addColorStop(0.5, '#110103');
+        grad.addColorStop(1, '#050001');
+      } else if (cover.bgGradient?.includes('#1e293b') || cover.bgGradient?.includes('#0f172a')) {
+        grad.addColorStop(0, '#1e293b');
+        grad.addColorStop(0.5, '#0f172a');
+        grad.addColorStop(1, '#090d16');
       } else {
         grad.addColorStop(0, '#261f18');
         grad.addColorStop(0.5, '#3a2e23');
@@ -1238,7 +1666,6 @@ export const CoverStudio: React.FC<CoverStudioProps> = ({
         const img = new Image();
         img.crossOrigin = 'anonymous';
         img.onload = () => {
-          // Draw with object-fit: cover logic
           const imgAspect = img.width / img.height;
           const canvasAspect = targetW / targetH;
           let renderW = targetW;
@@ -1268,19 +1695,21 @@ export const CoverStudio: React.FC<CoverStudioProps> = ({
       ctx.globalAlpha = 1.0;
     }
 
-    // Vignette pattern if active
+    // Vignette pattern
     if (cover.overlayPattern === 'vignette') {
       const radius = Math.max(targetW, targetH) * 0.75;
       const vignette = ctx.createRadialGradient(targetW / 2, targetH / 2, radius * 0.2, targetW / 2, targetH / 2, radius);
       vignette.addColorStop(0, 'rgba(0,0,0,0)');
-      vignette.addColorStop(1, 'rgba(0,0,0,0.7)');
+      vignette.addColorStop(1, 'rgba(0,0,0,0.75)');
       ctx.fillStyle = vignette;
       ctx.fillRect(0, 0, targetW, targetH);
     }
 
-    // 3. Render Each Element by Layer Order
+    // 3. Render Each Non-Hidden Element by Layer Order
     const elements = cover.elements || [];
     for (const el of elements) {
+      if (el.hidden) continue;
+
       const elX = (el.x / 100) * targetW;
       const elY = (el.y / 100) * targetH;
       const elW = (el.width / 100) * targetW;
@@ -1299,11 +1728,11 @@ export const CoverStudio: React.FC<CoverStudioProps> = ({
 
       if (el.type === 'frame') {
         ctx.strokeStyle = el.strokeColor || '#d4af37';
-        ctx.lineWidth = (el.strokeWidth || 2) * scale;
+        ctx.lineWidth = Math.max(1, (el.strokeWidth || 2) * scale * 2);
         ctx.strokeRect(elX, elY, elW, elH);
       } else if (el.type === 'line') {
         ctx.fillStyle = el.fillColor || el.strokeColor || '#d4af37';
-        ctx.fillRect(elX, elY, elW, Math.max(2, (el.height || 2) * scale));
+        ctx.fillRect(elX, elY, elW, Math.max(2, (el.height || 2) * scale * 2));
       } else if (el.type === 'shape') {
         if (el.shapeType === 'circle') {
           ctx.beginPath();
@@ -1314,7 +1743,7 @@ export const CoverStudio: React.FC<CoverStudioProps> = ({
           }
           if (el.strokeColor) {
             ctx.strokeStyle = el.strokeColor;
-            ctx.lineWidth = (el.strokeWidth || 1) * scale;
+            ctx.lineWidth = Math.max(1, (el.strokeWidth || 1) * scale * 2);
             ctx.stroke();
           }
         } else {
@@ -1324,7 +1753,7 @@ export const CoverStudio: React.FC<CoverStudioProps> = ({
           }
           if (el.strokeColor) {
             ctx.strokeStyle = el.strokeColor;
-            ctx.lineWidth = (el.strokeWidth || 1) * scale;
+            ctx.lineWidth = Math.max(1, (el.strokeWidth || 1) * scale * 2);
             ctx.strokeRect(elX, elY, elW, elH);
           }
         }
@@ -1347,7 +1776,7 @@ export const CoverStudio: React.FC<CoverStudioProps> = ({
           ? rawText.toLowerCase()
           : rawText;
 
-        const scaledFontSize = Math.round((el.fontSize || 28) * scale * 2.2);
+        const scaledFontSize = Math.round((el.fontSize || 24) * scale * 2.2);
         const weight = el.fontWeight || 'normal';
         const style = el.fontStyle === 'italic' ? 'italic' : 'normal';
         const family = el.fontFamily || 'Playfair Display';
@@ -1367,7 +1796,7 @@ export const CoverStudio: React.FC<CoverStudioProps> = ({
 
         const renderX = el.textAlign === 'center' ? elX + elW / 2 : el.textAlign === 'right' ? elX + elW : elX;
         
-        // Simple word wrap
+        // Multi-line word wrap
         const words = displayText.split(' ');
         let line = '';
         let currentLineY = elY;
@@ -1390,7 +1819,8 @@ export const CoverStudio: React.FC<CoverStudioProps> = ({
       ctx.restore();
     }
 
-    return offscreen.toDataURL('image/png', 0.95);
+    const mime = format === 'jpeg' ? 'image/jpeg' : 'image/png';
+    return offscreen.toDataURL(mime, 0.95);
   };
 
   // Save to Story Draft with generated high-res preview thumbnail
@@ -1398,25 +1828,30 @@ export const CoverStudio: React.FC<CoverStudioProps> = ({
     if (!activeStoryId) return;
     setSaveStatus('saving');
     try {
-      // 1. Generate high-res flattened snapshot to update cover.exportedCoverDataUrl
-      const exportSnapshot = await generateExportDataUrl(0.75);
+      const exportSnapshot = await generateExportDataUrl('png', 0.5);
 
-      // Extract title and author from elements for backward compatibility
       const titleEl = cover.elements?.find(e => e.textRole === 'title');
       const authorEl = cover.elements?.find(e => e.textRole === 'author');
       const subEl = cover.elements?.find(e => e.textRole === 'subtitle');
+      const seriesEl = cover.elements?.find(e => e.textRole === 'series');
+      const pubEl = cover.elements?.find(e => e.textRole === 'publisher');
 
       const updatedCover: CoverConfig = {
         ...cover,
+        schemaVersion: 2,
         title: titleEl?.content || cover.title || currentStory?.title || 'Untitled',
         author: authorEl?.content || cover.author || defaultAuthor,
         subtitle: subEl?.content || cover.subtitle,
+        series: seriesEl?.content || cover.series,
+        publisher: pubEl?.content || cover.publisher,
         exportedCoverDataUrl: exportSnapshot
       };
 
       await onSaveCover(activeStoryId, updatedCover);
       setCover(updatedCover);
       setSaveStatus('saved');
+      localStorage.removeItem(`inokora_cover_draft_${activeStoryId}`);
+      setRecoverableDraft(null);
       showToast('Cover saved to story manuscript successfully!');
     } catch (err: any) {
       console.error('[CoverStudio] Save error:', err);
@@ -1425,21 +1860,28 @@ export const CoverStudio: React.FC<CoverStudioProps> = ({
     }
   };
 
-  // High-Resolution PNG Export Trigger
-  const handleExportPNG = async () => {
+  // High-Resolution Export Trigger (PNG / JPEG)
+  const handleExportFile = async (format: 'png' | 'jpeg', customScale?: number) => {
     setIsExporting(true);
     try {
-      const dataUrl = await generateExportDataUrl(exportScale);
+      const scaleToUse = customScale || exportScale;
+      const dataUrl = await generateExportDataUrl(format, scaleToUse);
+      if (!dataUrl || dataUrl === 'data:,') {
+        throw new Error('Canvas render failed to produce an image.');
+      }
       const link = document.createElement('a');
       const sanitizedTitle = (cover.title || currentStory?.title || 'Book-Cover')
         .replace(/[^a-zA-Z0-9_-]/g, '_')
         .toLowerCase();
-      link.download = `${sanitizedTitle}_${cover.width}x${cover.height}_cover.png`;
+      const finalW = Math.round((cover.width || 1600) * scaleToUse);
+      const finalH = Math.round((cover.height || 2560) * scaleToUse);
+      const ext = format === 'jpeg' ? 'jpg' : 'png';
+      link.download = `${sanitizedTitle}_${finalW}x${finalH}_cover.${ext}`;
       link.href = dataUrl;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      showToast(`Cover exported at ${cover.width! * exportScale}×${cover.height! * exportScale}px PNG!`);
+      showToast(`Cover exported at ${finalW}×${finalH}px (${format.toUpperCase()})!`);
     } catch (err: any) {
       alert(`Export error: ${err?.message || 'Failed to render high-resolution canvas'}`);
     } finally {
@@ -1516,10 +1958,10 @@ export const CoverStudio: React.FC<CoverStudioProps> = ({
     <div className="min-h-screen bg-[#09090b] text-[#f5f5f4] flex flex-col relative select-none font-sans overflow-hidden">
       
       {/* 1. Compact Pro Editorial Toolbar */}
-      <header className="h-14 border-b border-[#292524] bg-[#0c0a09]/95 backdrop-blur-md px-4 flex items-center justify-between gap-4 z-40">
+      <header className="h-14 border-b border-[#292524] bg-[#0c0a09]/95 backdrop-blur-md px-3 sm:px-4 flex items-center justify-between gap-2 sm:gap-4 z-40">
         
-        {/* Left: Back & Story Dropdown */}
-        <div className="flex items-center gap-3">
+        {/* Left: Exit, Panel Toggle & Story Dropdown */}
+        <div className="flex items-center gap-2 sm:gap-3">
           <button
             onClick={onBack}
             className="p-1.5 rounded-lg bg-stone-900 hover:bg-stone-800 text-stone-300 text-xs font-medium flex items-center gap-1.5 transition-colors border border-stone-800"
@@ -1527,6 +1969,16 @@ export const CoverStudio: React.FC<CoverStudioProps> = ({
           >
             <ArrowLeft className="w-4 h-4" />
             <span className="hidden sm:inline">Exit</span>
+          </button>
+
+          <button
+            onClick={() => setIsLeftPanelOpen(!isLeftPanelOpen)}
+            className={`p-1.5 rounded-lg border text-xs transition-colors ${
+              isLeftPanelOpen ? 'bg-stone-800 border-stone-700 text-stone-200' : 'bg-stone-900 border-stone-800 text-stone-400'
+            }`}
+            title={isLeftPanelOpen ? "Collapse Sidebar" : "Expand Sidebar"}
+          >
+            {isLeftPanelOpen ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />}
           </button>
 
           <div className="h-4 w-px bg-stone-800 hidden sm:block" />
@@ -1537,7 +1989,7 @@ export const CoverStudio: React.FC<CoverStudioProps> = ({
             <select
               value={activeStoryId}
               onChange={(e) => setActiveStoryId(e.target.value)}
-              className="bg-[#141210] border border-stone-800 rounded-lg px-2.5 py-1 text-xs text-stone-200 focus:outline-none focus:border-emerald-600 max-w-[160px] sm:max-w-[220px] truncate"
+              className="bg-[#141210] border border-stone-800 rounded-lg px-2.5 py-1 text-xs text-stone-200 focus:outline-none focus:border-emerald-600 max-w-[130px] sm:max-w-[200px] truncate"
             >
               {stories.map(s => (
                 <option key={s.id} value={s.id}>
@@ -1600,16 +2052,16 @@ export const CoverStudio: React.FC<CoverStudioProps> = ({
             </button>
           </div>
 
-          {/* Guides Toggle */}
+          {/* Alignment Grid Toggle */}
           <button
-            onClick={() => setShowGuides(!showGuides)}
+            onClick={() => setShowGrid(!showGrid)}
             className={`p-1.5 rounded-lg border text-xs flex items-center gap-1 transition-colors ${
-              showGuides ? 'bg-emerald-950/60 border-emerald-800 text-emerald-300' : 'bg-[#141210] border-stone-800 text-stone-400'
+              showGrid ? 'bg-emerald-950/60 border-emerald-800 text-emerald-300' : 'bg-[#141210] border-stone-800 text-stone-400'
             }`}
-            title="Toggle Center Alignment Guides"
+            title="Toggle Alignment Grid"
           >
             <Grid className="w-3.5 h-3.5" />
-            <span className="hidden xl:inline">Guides</span>
+            <span className="hidden xl:inline">Grid</span>
           </button>
 
           {/* Safe Margins Toggle */}
@@ -1631,7 +2083,7 @@ export const CoverStudio: React.FC<CoverStudioProps> = ({
           {/* 3D Mockup / Reader Preview */}
           <button
             onClick={() => setPreviewMode(p => p === '3d-mockup' ? 'none' : '3d-mockup')}
-            className={`px-3 py-1.5 rounded-lg border text-xs font-medium flex items-center gap-1.5 transition-colors ${
+            className={`px-2.5 py-1.5 rounded-lg border text-xs font-medium flex items-center gap-1.5 transition-colors ${
               previewMode === '3d-mockup'
                 ? 'bg-amber-950/80 border-amber-700 text-amber-300 shadow'
                 : 'bg-[#141210] border-stone-800 text-stone-300 hover:bg-stone-800'
@@ -1646,7 +2098,7 @@ export const CoverStudio: React.FC<CoverStudioProps> = ({
           <button
             onClick={handleSaveCover}
             disabled={saveStatus === 'saving'}
-            className="px-3.5 py-1.5 rounded-lg bg-emerald-800 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-medium flex items-center gap-1.5 transition-colors shadow-md"
+            className="px-3 py-1.5 rounded-lg bg-emerald-800 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-medium flex items-center gap-1.5 transition-colors shadow-md"
             title="Save cover to story manuscript"
           >
             {saveStatus === 'saving' ? (
@@ -1657,19 +2109,87 @@ export const CoverStudio: React.FC<CoverStudioProps> = ({
             <span>{saveStatus === 'saving' ? 'Saving...' : saveStatus === 'saved' ? 'Saved' : 'Save Cover'}</span>
           </button>
 
-          {/* High-Resolution PNG Export */}
+          {/* Format (PNG/JPEG) & Resolution Scale Selector */}
+          <div className="flex items-center rounded-lg border border-stone-800 bg-[#141210] p-0.5">
+            <select
+              value={exportFormat}
+              onChange={(e) => setExportFormat(e.target.value as 'png' | 'jpeg')}
+              className="bg-transparent text-[11px] text-stone-300 px-1.5 py-1 focus:outline-none cursor-pointer border-r border-stone-800 font-mono uppercase"
+              title="Export File Format"
+            >
+              <option value="png" className="bg-[#141210] text-stone-200">PNG</option>
+              <option value="jpeg" className="bg-[#141210] text-stone-200">JPEG</option>
+            </select>
+            <select
+              value={exportScale}
+              onChange={(e) => setExportScale(Number(e.target.value))}
+              className="bg-transparent text-[11px] text-stone-300 px-2 py-1 focus:outline-none cursor-pointer"
+              title="Select export resolution scale"
+            >
+              <option value="1.875" className="bg-[#141210] text-stone-200">Print High-Res (3000×4800)</option>
+              <option value="1.5" className="bg-[#141210] text-stone-200">Trade 6×9 (2400×3840)</option>
+              <option value="1" className="bg-[#141210] text-stone-200">Digital Standard (1600×2560)</option>
+              <option value="0.5" className="bg-[#141210] text-stone-200">Compact Preview (800×1280)</option>
+            </select>
+            <button
+              onClick={() => handleExportFile(exportFormat, exportScale)}
+              disabled={isExporting}
+              className="px-3 py-1 rounded-md bg-gradient-to-r from-amber-600 via-rose-600 to-amber-700 hover:from-amber-500 hover:to-rose-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-all shadow-md disabled:opacity-50"
+              title={`Download high-resolution print-ready ${exportFormat.toUpperCase()}`}
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>{isExporting ? 'Exporting...' : 'Export'}</span>
+            </button>
+          </div>
+
+          {/* Right Inspector Toggle */}
           <button
-            onClick={handleExportPNG}
-            disabled={isExporting}
-            className="px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-amber-600 via-rose-600 to-amber-700 hover:from-amber-500 hover:to-rose-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-all shadow-lg shadow-rose-950/40 disabled:opacity-50"
-            title="Download high-resolution print-ready PNG"
+            onClick={() => setIsRightPanelOpen(!isRightPanelOpen)}
+            className={`p-1.5 rounded-lg border text-xs transition-colors hidden sm:block ${
+              isRightPanelOpen ? 'bg-stone-800 border-stone-700 text-stone-200' : 'bg-stone-900 border-stone-800 text-stone-400'
+            }`}
+            title={isRightPanelOpen ? "Collapse Inspector" : "Expand Inspector"}
           >
-            <Download className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Export PNG</span>
+            {isRightPanelOpen ? <PanelRightClose className="w-4 h-4" /> : <PanelRightOpen className="w-4 h-4" />}
           </button>
 
         </div>
       </header>
+
+      {/* Recoverable Local Draft Banner */}
+      {recoverableDraft && (
+        <div className="bg-amber-950/80 border-b border-amber-600/50 px-4 py-2 flex items-center justify-between text-xs text-amber-200 z-30 animate-fade-in">
+          <div className="flex items-center gap-2">
+            <ShieldAlert className="w-4 h-4 text-amber-400 flex-shrink-0" />
+            <span>
+              Unsaved local recovery draft found ({new Date(recoverableDraft.savedAt).toLocaleTimeString()}). Would you like to restore it?
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                setCover(recoverableDraft.cover);
+                setRecoverableDraft(null);
+                setSaveStatus('unsaved');
+                showToast('Restored draft from local storage');
+              }}
+              className="px-2.5 py-1 rounded bg-amber-600 hover:bg-amber-500 text-stone-950 font-semibold text-[11px] shadow transition-colors"
+            >
+              Restore Draft
+            </button>
+            <button
+              onClick={() => {
+                localStorage.removeItem(`inokora_cover_draft_${activeStoryId}`);
+                setRecoverableDraft(null);
+                showToast('Discarded local recovery draft');
+              }}
+              className="px-2 py-1 rounded bg-stone-900 hover:bg-stone-800 text-stone-400 text-[11px] transition-colors"
+            >
+              Discard
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Toast Notification */}
       {toastMessage && (
@@ -1748,25 +2268,32 @@ export const CoverStudio: React.FC<CoverStudioProps> = ({
                 </div>
 
                 <div className="space-y-3">
-                  {TEMPLATES.map(tpl => (
-                    <div
-                      key={tpl.id}
-                      onClick={() => handleApplyTemplate(tpl)}
-                      className="p-3.5 rounded-xl border border-stone-800 hover:border-emerald-700/60 bg-[#141210] hover:bg-[#1a1715] cursor-pointer transition-all group shadow-md"
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs font-semibold text-stone-100 group-hover:text-emerald-300 transition-colors">
-                          {tpl.name}
-                        </span>
-                        <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-stone-800 text-stone-300">
-                          {tpl.genreTag}
-                        </span>
+                  {TEMPLATES.map(tpl => {
+                    const isSelected = cover.templateId === tpl.id;
+                    return (
+                      <div
+                        key={tpl.id}
+                        onClick={() => handleApplyTemplate(tpl)}
+                        className={`p-3.5 rounded-xl border transition-all group shadow-md cursor-pointer ${
+                          isSelected
+                            ? 'bg-emerald-950/40 border-emerald-500 shadow-emerald-950/50'
+                            : 'border-stone-800 hover:border-emerald-700/60 bg-[#141210] hover:bg-[#1a1715]'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <span className={`text-xs font-semibold transition-colors ${isSelected ? 'text-emerald-300' : 'text-stone-100 group-hover:text-emerald-300'}`}>
+                            {tpl.name}
+                          </span>
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-mono ${isSelected ? 'bg-emerald-900/60 text-emerald-200' : 'bg-stone-800 text-stone-300'}`}>
+                            {tpl.genreTag}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-stone-400 leading-relaxed font-light">
+                          {tpl.description}
+                        </p>
                       </div>
-                      <p className="text-[11px] text-stone-400 leading-relaxed font-light">
-                        {tpl.description}
-                      </p>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}

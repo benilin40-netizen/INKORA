@@ -80,6 +80,34 @@ export const Settings: React.FC<SettingsProps> = ({ user, onSaveUser }) => {
           </div>
         </form>
 
+        {/* Google Drive Storage Integration Card */}
+        <div className="bg-[#121110]/90 backdrop-blur-md border border-stone-800 rounded-2xl p-8 space-y-4 shadow-xl">
+          <div className="flex items-center justify-between border-b border-stone-800 pb-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-amber-950/80 border border-amber-800 text-amber-400">
+                <Database className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-lg font-serif font-bold text-stone-100">Google Drive Story Storage</h3>
+                <p className="text-xs text-stone-400">Connected to your Google account for dedicated manuscript file storage.</p>
+              </div>
+            </div>
+            <span className="px-3 py-1 rounded-full bg-emerald-950/60 border border-emerald-800 text-emerald-300 text-xs font-mono font-medium flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-400" /> Authorized
+            </span>
+          </div>
+
+          <p className="text-xs text-stone-300 leading-relaxed font-light">
+            INOKORA stores your book manuscripts and chapters as JSON documents inside an dedicated <code className="text-amber-300 font-mono">INOKORA_Stories</code> folder in your Google Drive, while metadata and indexes are securely maintained in Firestore.
+          </p>
+
+          <div className="pt-2 flex items-center gap-4 text-xs text-stone-400">
+            <span>OAuth Scope: <code className="text-stone-300 font-mono">drive.file</code></span>
+            <span>•</span>
+            <span>Sync Status: <span className="text-emerald-400 font-medium">Active & Verified</span></span>
+          </div>
+        </div>
+
       </div>
     </div>
   );

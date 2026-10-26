@@ -53,6 +53,10 @@ export const Auth: React.FC<AuthProps> = ({ onSuccess, onCancel, currentUser, in
       const { profile } = await AuthService.signInWithGoogle();
       onSuccess(profile);
     } catch (err: any) {
+      if (err?.code === 'auth/popup-closed-by-user') {
+        setLoading(false);
+        return;
+      }
       setError(formatAuthError(err));
     } finally {
       setLoading(false);

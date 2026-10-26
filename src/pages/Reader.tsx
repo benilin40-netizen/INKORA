@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   ArrowLeft, Bookmark, Heart, ChevronLeft, ChevronRight, MessageSquare, 
-  Flag, Send, Check, AlertCircle, X, ThumbsUp, User as UserIcon, Clock, Sparkles
+  Flag, Send, Check, AlertCircle, X, ThumbsUp, User as UserIcon, Clock, 
+  Sparkles, Sliders, Type, AlignJustify, Maximize2
 } from 'lucide-react';
 import { Story, StoryComment, StoryReport, BookshelfStatus, ReadingProgress } from '../types';
 import { StorageService } from '../services/storage';
@@ -18,6 +19,27 @@ interface ReaderProps {
   onToggleLike: (storyId: string) => void;
 }
 
+type ReadingTheme = 'dark' | 'light' | 'sepia' | 'forest' | 'midnight';
+type ReadingFont = 'cormorant' | 'playfair' | 'eb-garamond' | 'merriweather' | 'georgia' | 'montserrat' | 'courier';
+type LineSpacing = 'compact' | 'normal' | 'relaxed';
+type ContentWidth = 'compact' | 'comfortable' | 'wide';
+
+interface ReadingPreferences {
+  theme: ReadingTheme;
+  fontSize: number;
+  fontFamily: ReadingFont;
+  lineSpacing: LineSpacing;
+  contentWidth: ContentWidth;
+}
+
+const DEFAULT_PREFERENCES: ReadingPreferences = {
+  theme: 'dark',
+  fontSize: 19,
+  fontFamily: 'cormorant',
+  lineSpacing: 'normal',
+  contentWidth: 'comfortable'
+};
+
 export const Reader: React.FC<ReaderProps> = ({
   storyId,
   stories,
@@ -29,6 +51,28 @@ export const Reader: React.FC<ReaderProps> = ({
 }) => {
   const story = stories.find(s => s.id === storyId) || stories[0];
   const user = StorageService.getUser();
+
+  // Load persistent user reading preferences
+  const [preferences, setPreferences] = useState<ReadingPreferences>(() => {
+    try {
+      const raw = localStorage.getItem('inokora_reader_prefs_v3');
+      if (raw) return { ...DEFAULT_PREFERENCES, ...JSON.parse(raw) };
+    } catch {}
+    return DEFAULT_PREFERENCES;
+  });
+
+  const [showPreferencesModal, setShowPreferencesModal] = useState<boolean>(false);
+
+  // Update preferences and persist to localStorage
+  const updatePreference = <K extends keyof ReadingPreferences>(key: K, value: ReadingPreferences[K]) => {
+    setPreferences(prev => {
+      const next = { ...prev, [key]: value };
+      try {
+        localStorage.setItem('inokora_reader_prefs_v3', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  };
 
   // Read readingProgress object from localStorage keyed by storyId
   const getSavedProgress = (): ReadingProgress | undefined => {
@@ -52,8 +96,6 @@ export const Reader: React.FC<ReaderProps> = ({
     return 0;
   });
 
-  const [theme, setTheme] = useState<'dark' | 'light' | 'sepia'>('dark');
-  const [fontSize, setFontSize] = useState<number>(18);
   const [showComments, setShowComments] = useState<boolean>(true);
   const [commentsFilter, setCommentsFilter] = useState<'current' | 'all'>('current');
   const [comments, setComments] = useState<StoryComment[]>(() => StorageService.getComments(storyId));
@@ -221,7 +263,7 @@ export const Reader: React.FC<ReaderProps> = ({
       id: `rep_${Date.now()}`,
       storyId,
       storyTitle: story?.title || 'Untitled',
-      reporterEmail: user.email || 'guest@inokora.io',
+      reporterEmail: user.email || 'reader@inokora.internal',
       reason: reportReason,
       details: reportDetails,
       createdAt: Date.now(),
@@ -237,19 +279,49 @@ export const Reader: React.FC<ReaderProps> = ({
     }, 1800);
   };
 
-  const themeClasses = {
-    dark: 'bg-[#09090b]/90 backdrop-blur-sm text-stone-200',
-    light: 'bg-[#fafaf9] text-stone-900',
-    sepia: 'bg-[#fdf6e2] text-[#433422]'
+  // Theme style classes
+  const themeClasses: Record<ReadingTheme, string> = {
+    dark: 'bg-[#09090b] text-[#e7e5e4] selection:bg-rose-900 selection:text-white',
+    light: 'bg-[#fafaf9] text-[#292524] selection:bg-rose-200 selection:text-stone-900',
+    sepia: 'bg-[#fcf5e5] text-[#3f2e1e] selection:bg-amber-200 selection:text-stone-900',
+    forest: 'bg-[#081510] text-[#d1fae5] selection:bg-emerald-900 selection:text-white',
+    midnight: 'bg-[#050914] text-[#e0e7ff] selection:bg-indigo-900 selection:text-white'
+  };
+
+  // Font family styles
+  const fontClasses: Record<ReadingFont, string> = {
+    'cormorant': "'Cormorant Garamond', serif",
+    'playfair': "'Playfair Display', serif",
+    'eb-garamond': "'EB Garamond', serif",
+    'merriweather': "'Merriweather', serif",
+    'georgia': 'Georgia, serif',
+    'montserrat': "'Montserrat', sans-serif",
+    'courier': "'Courier Prime', monospace"
+  };
+
+  // Line spacing styles
+  const lineSpacingClasses: Record<LineSpacing, string> = {
+    compact: 'leading-relaxed',
+    normal: 'leading-loose',
+    relaxed: 'leading-[2.3]'
+  };
+
+  // Container width styles
+  const widthClasses: Record<ContentWidth, string> = {
+    compact: 'max-w-2xl',
+    comfortable: 'max-w-3xl',
+    wide: 'max-w-4xl'
   };
 
   if (!story) {
     return (
-      <div className="min-h-screen bg-transparent text-[#f5f5f4] flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-stone-400 mb-4">Story not found.</p>
-          <button onClick={onBack} className="px-4 py-2 bg-stone-800 rounded-lg text-sm">
-            Back to Library
+      <div className="min-h-screen bg-[#09090b] text-[#f5f5f4] flex items-center justify-center">
+        <div className="text-center p-8 bg-[#141210] border border-stone-800 rounded-3xl max-w-md shadow-2xl">
+          <BookCoverDisplay cover={{ title: 'Missing Story', author: 'Unknown', bgColor: '#1c1917', bgGradient: '', overlayPattern: 'none', fontFamily: 'serif', titleColor: '#fff', authorColor: '#fff', titleSize: 2, titlePosition: { x: 50, y: 50 }, authorPosition: { x: 50, y: 80 } }} title="Story Unavailable" author="" aspectRatio="2/3" />
+          <h2 className="text-xl font-serif font-bold text-stone-100 mt-4 mb-2">Story Unavailable</h2>
+          <p className="text-stone-400 text-xs mb-6">This manuscript may have been moved back to private draft mode by its author or removed.</p>
+          <button onClick={onBack} className="px-5 py-2.5 bg-rose-600 hover:bg-rose-500 rounded-xl text-xs font-semibold text-white transition-colors shadow-lg">
+            Return to Story Library
           </button>
         </div>
       </div>
@@ -257,7 +329,7 @@ export const Reader: React.FC<ReaderProps> = ({
   }
 
   return (
-    <div className={`min-h-screen ${themeClasses[theme]} transition-colors duration-300 flex flex-col relative z-10`}>
+    <div className={`min-h-screen ${themeClasses[preferences.theme]} transition-colors duration-300 flex flex-col relative z-10`}>
       
       {/* Resumed Reading Progress Toast */}
       {resumedNotice && (
@@ -269,8 +341,11 @@ export const Reader: React.FC<ReaderProps> = ({
 
       {/* Sticky Reader Navigation Header */}
       <header className={`sticky top-0 z-40 border-b px-4 sm:px-6 h-16 flex items-center justify-between ${
-        theme === 'dark' ? 'bg-[#0c0a09]/95 border-[#292524]' :
-        theme === 'light' ? 'bg-white/95 border-stone-200' : 'bg-[#f5ebd2]/95 border-[#e6d8ba]'
+        preferences.theme === 'dark' ? 'bg-[#0c0a09]/95 border-[#292524]' :
+        preferences.theme === 'light' ? 'bg-white/95 border-stone-200' :
+        preferences.theme === 'sepia' ? 'bg-[#f7edd4]/95 border-[#e4d6b6]' :
+        preferences.theme === 'forest' ? 'bg-[#091812]/95 border-[#123124]' :
+        'bg-[#060b18]/95 border-[#131c36]'
       } backdrop-blur-md shadow-sm`}>
         <div className="flex items-center gap-3">
           <button
@@ -288,47 +363,36 @@ export const Reader: React.FC<ReaderProps> = ({
         </div>
 
         <div className="flex items-center gap-2 sm:gap-3">
-          {/* Theme Switcher */}
-          <div className="flex items-center gap-1 bg-black/10 rounded-lg p-1">
-            <button
-              onClick={() => setTheme('dark')}
-              className={`px-2 py-0.5 rounded text-[11px] font-medium transition-all ${theme === 'dark' ? 'bg-stone-800 text-white shadow' : 'opacity-70'}`}
-            >
-              Dark
-            </button>
-            <button
-              onClick={() => setTheme('sepia')}
-              className={`px-2 py-0.5 rounded text-[11px] font-medium transition-all ${theme === 'sepia' ? 'bg-[#ebd9b5] text-[#433422] shadow' : 'opacity-70'}`}
-            >
-              Sepia
-            </button>
-            <button
-              onClick={() => setTheme('light')}
-              className={`px-2 py-0.5 rounded text-[11px] font-medium transition-all ${theme === 'light' ? 'bg-white text-stone-900 shadow' : 'opacity-70'}`}
-            >
-              Light
-            </button>
-          </div>
+          
+          {/* Reading Preferences Popover Toggle */}
+          <button
+            onClick={() => setShowPreferencesModal(true)}
+            className="px-3 py-1.5 rounded-lg bg-black/10 hover:bg-black/20 transition-colors flex items-center gap-1.5 text-xs font-medium"
+            title="Customize reading typography and themes"
+          >
+            <Sliders className="w-3.5 h-3.5 text-amber-400" />
+            <span className="hidden sm:inline">Display</span>
+          </button>
 
-          {/* Font Resizer */}
+          {/* Quick Font Size Adjusters */}
           <div className="hidden sm:flex items-center gap-1">
             <button
-              onClick={() => setFontSize(prev => Math.max(14, prev - 2))}
+              onClick={() => updatePreference('fontSize', Math.max(14, preferences.fontSize - 2))}
               className="w-7 h-7 rounded-lg bg-black/10 flex items-center justify-center font-bold text-xs hover:bg-black/20 transition-colors"
-              title="Decrease Font"
+              title="Decrease Font Size"
             >
               A-
             </button>
             <button
-              onClick={() => setFontSize(prev => Math.min(26, prev + 2))}
+              onClick={() => updatePreference('fontSize', Math.min(30, preferences.fontSize + 2))}
               className="w-7 h-7 rounded-lg bg-black/10 flex items-center justify-center font-bold text-xs hover:bg-black/20 transition-colors"
-              title="Increase Font"
+              title="Increase Font Size"
             >
               A+
             </button>
           </div>
 
-          {/* Bookmark */}
+          {/* Bookmark Button */}
           <button
             onClick={() => onToggleBookmark(story.id)}
             className={`p-2 rounded-lg border transition-colors ${
@@ -339,7 +403,7 @@ export const Reader: React.FC<ReaderProps> = ({
             <Bookmark className={`w-4 h-4 ${isBookmarked ? 'fill-amber-500' : ''}`} />
           </button>
 
-          {/* Like */}
+          {/* Like Button */}
           <button
             onClick={() => onToggleLike(story.id)}
             className={`p-2 rounded-lg border transition-colors flex items-center gap-1 text-xs ${
@@ -362,8 +426,154 @@ export const Reader: React.FC<ReaderProps> = ({
         </div>
       </header>
 
+      {/* Preferences Drawer / Modal */}
+      {showPreferencesModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[#141210] border border-stone-800 rounded-3xl max-w-md w-full p-6 text-stone-200 shadow-2xl space-y-6">
+            <div className="flex items-center justify-between pb-3 border-b border-stone-800">
+              <div className="flex items-center gap-2">
+                <Sliders className="w-4 h-4 text-amber-400" />
+                <h3 className="font-serif font-bold text-base text-stone-100">Reading Display Preferences</h3>
+              </div>
+              <button onClick={() => setShowPreferencesModal(false)} className="text-stone-400 hover:text-white">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Theme Selection */}
+            <div>
+              <label className="block text-xs uppercase font-medium tracking-wider text-stone-400 mb-2">Reading Atmosphere</label>
+              <div className="grid grid-cols-5 gap-2">
+                {[
+                  { id: 'dark' as ReadingTheme, name: 'Dark', bg: '#09090b', text: '#e7e5e4' },
+                  { id: 'light' as ReadingTheme, name: 'Light', bg: '#fafaf9', text: '#292524' },
+                  { id: 'sepia' as ReadingTheme, name: 'Sepia', bg: '#fcf5e5', text: '#3f2e1e' },
+                  { id: 'forest' as ReadingTheme, name: 'Forest', bg: '#081510', text: '#d1fae5' },
+                  { id: 'midnight' as ReadingTheme, name: 'Night', bg: '#050914', text: '#e0e7ff' },
+                ].map(t => (
+                  <button
+                    key={t.id}
+                    onClick={() => updatePreference('theme', t.id)}
+                    className={`py-3 px-1 rounded-xl text-center text-xs font-medium border transition-all ${
+                      preferences.theme === t.id
+                        ? 'border-amber-400 ring-2 ring-amber-400/30 font-bold'
+                        : 'border-stone-800 opacity-80 hover:opacity-100'
+                    }`}
+                    style={{ backgroundColor: t.bg, color: t.text }}
+                  >
+                    {t.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Typography Selection */}
+            <div>
+              <label className="block text-xs uppercase font-medium tracking-wider text-stone-400 mb-2">Font Family</label>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                {[
+                  { id: 'cormorant' as ReadingFont, name: 'Cormorant Garamond', style: "'Cormorant Garamond', serif" },
+                  { id: 'playfair' as ReadingFont, name: 'Playfair Display', style: "'Playfair Display', serif" },
+                  { id: 'eb-garamond' as ReadingFont, name: 'EB Garamond', style: "'EB Garamond', serif" },
+                  { id: 'merriweather' as ReadingFont, name: 'Merriweather', style: "'Merriweather', serif" },
+                  { id: 'georgia' as ReadingFont, name: 'Classic Georgia', style: 'Georgia, serif' },
+                  { id: 'montserrat' as ReadingFont, name: 'Montserrat (Sans)', style: "'Montserrat', sans-serif" },
+                ].map(f => (
+                  <button
+                    key={f.id}
+                    onClick={() => updatePreference('fontFamily', f.id)}
+                    style={{ fontFamily: f.style }}
+                    className={`p-2.5 rounded-xl border text-left text-xs transition-all ${
+                      preferences.fontFamily === f.id
+                        ? 'bg-rose-950/60 border-rose-700 text-rose-200 font-bold'
+                        : 'bg-[#1c1917] border-stone-800 text-stone-300 hover:border-stone-700'
+                    }`}
+                  >
+                    {f.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Font Size & Line Spacing */}
+            <div className="space-y-4 pt-1">
+              <div>
+                <div className="flex justify-between text-xs text-stone-400 mb-1">
+                  <span>Font Size</span>
+                  <span className="font-mono text-stone-200">{preferences.fontSize}px</span>
+                </div>
+                <input
+                  type="range"
+                  min="14"
+                  max="28"
+                  step="1"
+                  value={preferences.fontSize}
+                  onChange={(e) => updatePreference('fontSize', Number(e.target.value))}
+                  className="w-full accent-rose-600"
+                />
+              </div>
+
+              <div>
+                <span className="block text-xs text-stone-400 mb-1.5">Line Spacing</span>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { id: 'compact' as LineSpacing, label: 'Compact' },
+                    { id: 'normal' as LineSpacing, label: 'Standard' },
+                    { id: 'relaxed' as LineSpacing, label: 'Spacious' },
+                  ].map(ls => (
+                    <button
+                      key={ls.id}
+                      onClick={() => updatePreference('lineSpacing', ls.id)}
+                      className={`py-2 rounded-xl text-xs font-medium border transition-colors ${
+                        preferences.lineSpacing === ls.id
+                          ? 'bg-rose-950/60 border-rose-700 text-rose-200'
+                          : 'bg-[#1c1917] border-stone-800 text-stone-400'
+                      }`}
+                    >
+                      {ls.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <span className="block text-xs text-stone-400 mb-1.5">Reading Column Width</span>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { id: 'compact' as ContentWidth, label: 'Focused' },
+                    { id: 'comfortable' as ContentWidth, label: 'Standard' },
+                    { id: 'wide' as ContentWidth, label: 'Wide' },
+                  ].map(w => (
+                    <button
+                      key={w.id}
+                      onClick={() => updatePreference('contentWidth', w.id)}
+                      className={`py-2 rounded-xl text-xs font-medium border transition-colors ${
+                        preferences.contentWidth === w.id
+                          ? 'bg-rose-950/60 border-rose-700 text-rose-200'
+                          : 'bg-[#1c1917] border-stone-800 text-stone-400'
+                      }`}
+                    >
+                      {w.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-2 border-t border-stone-800 flex justify-end">
+              <button
+                onClick={() => setShowPreferencesModal(false)}
+                className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Main Reading Flow */}
-      <main className="flex-1 max-w-3xl mx-auto w-full px-6 py-12 flex flex-col justify-between">
+      <main className={`flex-1 ${widthClasses[preferences.contentWidth]} mx-auto w-full px-6 py-12 flex flex-col justify-between transition-all duration-300`}>
         <div>
           {/* Book Cover Hero on Chapter 1 */}
           {activeChapterIndex === 0 && (
@@ -419,10 +629,13 @@ export const Reader: React.FC<ReaderProps> = ({
             </div>
           </div>
 
-          {/* Chapter Content */}
+          {/* Chapter Content with Customized Preferences */}
           <article
-            style={{ fontSize: `${fontSize}px` }}
-            className="font-serif leading-loose whitespace-pre-wrap opacity-95 space-y-6"
+            style={{ 
+              fontSize: `${preferences.fontSize}px`,
+              fontFamily: fontClasses[preferences.fontFamily]
+            }}
+            className={`${lineSpacingClasses[preferences.lineSpacing]} whitespace-pre-wrap opacity-95 space-y-6 transition-all duration-200`}
           >
             {currentChapter?.content || 'No written words in this chapter yet.'}
           </article>

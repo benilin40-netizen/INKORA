@@ -66,9 +66,12 @@ export default function App() {
           }
         }
 
-        // Check if admin safely
+        // Check if owner-admin safely using verified bearer token
         try {
-          const roleData = await fetchJson<{ isAdmin: boolean }>(`/api/admin/check-role?uid=${firebaseUser.uid}`);
+          const idToken = await firebaseUser.getIdToken();
+          const roleData = await fetchJson<{ isAdmin: boolean; isOwner: boolean }>('/api/admin/check-role', {
+            headers: { 'Authorization': `Bearer ${idToken}` }
+          });
           profile.isAdmin = !!roleData.isAdmin;
         } catch {
           profile.isAdmin = false;
@@ -184,6 +187,7 @@ export default function App() {
           onBack={() => setCurrentPage('mystories')}
           onSaveStory={handleSaveStory}
           stories={stories}
+          onOpenCoverStudio={(id) => handleNavigate('cover-studio', id)}
         />
       </div>
     );

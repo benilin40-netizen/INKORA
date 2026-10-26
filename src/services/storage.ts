@@ -1,6 +1,7 @@
-import { Story, User, ReadingProgress, BookshelfItem, BookshelfStatus, StoryComment, StoryReport } from '../types';
+import { Story, StoryVersion, User, ReadingProgress, BookshelfItem, BookshelfStatus, StoryComment, StoryReport, AppNotification } from '../types';
 import { db, auth, handleFirestoreError, OperationType } from './firebase';
-import { collection, doc, setDoc, deleteDoc, getDocs, getDoc, query, where } from 'firebase/firestore';
+import { collection, doc, setDoc, deleteDoc, getDocs, getDoc, query, where, orderBy } from 'firebase/firestore';
+import { DriveService } from './drive';
 
 const STORAGE_KEYS = {
   STORIES: 'inokora_stories_v4',
@@ -10,7 +11,10 @@ const STORAGE_KEYS = {
   BOOKSHELF: 'inokora_bookshelf_v4',
   PROGRESS: 'inokora_reading_progress_v4',
   COMMENTS: 'inokora_comments_v4',
-  REPORTS: 'inokora_reports_v4'
+  REPORTS: 'inokora_reports_v4',
+  NOTIFICATIONS: 'inokora_notifications_v4',
+  VERSIONS_PREFIX: 'inokora_story_versions_v4_',
+  DRAFTS_PREFIX: 'inokora_unsaved_draft_v4_'
 };
 
 export const StorageService = {
@@ -35,7 +39,7 @@ export const StorageService = {
     }
   },
 
-  // Authoritative getStories: Queries public published stories and, if signed in, user's private drafts
+  // Authoritative getStories: Queries public published stories, user's private drafts in Firestore, and Google Drive
   async getStories(): Promise<Story[]> {
     const storiesMap = new Map<string, Story>();
 
@@ -43,19 +47,25 @@ export const StorageService = {
     const local = this.getLocalStories();
     local.forEach(s => storiesMap.set(s.id, s));
 
+    // 2. Load from Google Drive if authorized
+    try {
+      const driveStories = await DriveService.loadStories();
+      driveStories.forEach(s => storiesMap.set(s.id, s));
+    } catch {}
+
     if (!db) {
       return Array.from(storiesMap.values());
     }
 
     try {
-      // 2. Fetch public stories with strict query constraint matching security rules
+      // 3. Fetch public stories with strict query constraint matching security rules
       const publicQuery = query(collection(db, 'stories'), where('visibility', '==', 'public'));
       const publicSnap = await getDocs(publicQuery);
       publicSnap.forEach(d => {
         storiesMap.set(d.id, d.data() as Story);
       });
 
-      // 3. If user is signed in, fetch user's private drafts as well
+      // 4. If user is signed in, fetch user's own stories (including private & unlisted)
       const currentUid = auth.currentUser?.uid;
       if (currentUid) {
         const userQuery = query(collection(db, 'stories'), where('userId', '==', currentUid));
@@ -72,6 +82,13 @@ export const StorageService = {
       console.warn('[StorageService] Firestore fetch failed or rules restricted:', e?.message || e);
       return Array.from(storiesMap.values());
     }
+  },
+
+  // Public discovery stories: STRICTLY public visibility and published status only.
+  // Private drafts and unlisted stories never appear in public discovery.
+  async getPublicStories(): Promise<Story[]> {
+    const all = await this.getStories();
+    return all.filter(s => s.visibility === 'public' && s.status === 'published');
   },
 
   async getStory(id: string): Promise<Story | undefined> {
@@ -106,6 +123,13 @@ export const StorageService = {
       stories.unshift(storyWithCount);
     }
     this.saveLocalStories(stories);
+
+    // Sync to Google Drive if authorized
+    try {
+      await DriveService.saveStory(storyWithCount);
+    } catch (e) {
+      console.warn('[StorageService] Google Drive sync skipped:', e);
+    }
 
     // Sync to Firestore
     try {
@@ -142,12 +166,79 @@ export const StorageService = {
     return stories;
   },
 
+  // --- Version History & Draft Recovery ---
+  getStoryVersions(storyId: string): StoryVersion[] {
+    try {
+      const raw = localStorage.getItem(`${STORAGE_KEYS.VERSIONS_PREFIX}${storyId}`);
+      if (!raw) return [];
+      return JSON.parse(raw);
+    } catch {
+      return [];
+    }
+  },
+
+  createStoryVersion(story: Story, label = 'Auto-snapshot'): StoryVersion {
+    const versions = this.getStoryVersions(story.id);
+    const newVersion: StoryVersion = {
+      id: `ver_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      storyId: story.id,
+      timestamp: Date.now(),
+      label,
+      totalWordCount: story.totalWordCount || story.chapters.reduce((a, c) => a + (c.wordCount || 0), 0),
+      chaptersCount: story.chapters.length,
+      chapters: JSON.parse(JSON.stringify(story.chapters)),
+      title: story.title,
+      synopsis: story.synopsis
+    };
+
+    // Keep up to 25 historical snapshots
+    const updated = [newVersion, ...versions.slice(0, 24)];
+    try {
+      localStorage.setItem(`${STORAGE_KEYS.VERSIONS_PREFIX}${story.id}`, JSON.stringify(updated));
+    } catch (e) {
+      console.warn('[StorageService] Failed to cache story version:', e);
+    }
+    return newVersion;
+  },
+
+  saveUnsavedDraft(story: Story): void {
+    try {
+      localStorage.setItem(
+        `${STORAGE_KEYS.DRAFTS_PREFIX}${story.id}`,
+        JSON.stringify({ story, savedAt: Date.now() })
+      );
+    } catch (e) {
+      console.warn('[StorageService] Failed to store temporary draft backup:', e);
+    }
+  },
+
+  getUnsavedDraft(storyId: string): { story: Story; savedAt: number } | null {
+    try {
+      const raw = localStorage.getItem(`${STORAGE_KEYS.DRAFTS_PREFIX}${storyId}`);
+      if (!raw) return null;
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  },
+
+  clearUnsavedDraft(storyId: string): void {
+    try {
+      localStorage.removeItem(`${STORAGE_KEYS.DRAFTS_PREFIX}${storyId}`);
+    } catch {}
+  },
+
   // --- User Profile ---
   getUser(): User {
     try {
       const stored = localStorage.getItem(STORAGE_KEYS.USER);
       if (stored) {
-        return JSON.parse(stored);
+        const parsed = JSON.parse(stored);
+        // Never treat cached localStorage as the authoritative source of truth for administrative rights
+        return {
+          ...parsed,
+          isAdmin: false
+        };
       }
     } catch {}
     return {
@@ -158,7 +249,8 @@ export const StorageService = {
       bio: 'Writing thoughts and crafting worlds on INOKORA.',
       followersCount: 0,
       joinedDate: Date.now(),
-      publicBookshelf: true
+      publicBookshelf: true,
+      isAdmin: false
     };
   },
 
@@ -199,12 +291,27 @@ export const StorageService = {
     }
   },
 
-  toggleLike(storyId: string): string[] {
+  toggleLike(storyId: string, user?: User, story?: Story): string[] {
     const likes = this.getLikes();
-    const updated = likes.includes(storyId)
-      ? likes.filter(id => id !== storyId)
-      : [...likes, storyId];
+    const isAdding = !likes.includes(storyId);
+    const updated = isAdding
+      ? [...likes, storyId]
+      : likes.filter(id => id !== storyId);
     localStorage.setItem(STORAGE_KEYS.LIKES, JSON.stringify(updated));
+
+    if (isAdding && story && user && story.userId && story.userId !== user.id) {
+      this.createNotification({
+        recipientId: story.userId,
+        senderId: user.id,
+        senderName: user.name || 'A Reader',
+        senderAvatar: user.avatar,
+        type: 'like',
+        storyId: story.id,
+        storyTitle: story.title,
+        message: `${user.name || 'A reader'} loved your story "${story.title}".`
+      }).catch(() => {});
+    }
+
     return updated;
   },
 
@@ -281,7 +388,7 @@ export const StorageService = {
     }
   },
 
-  addComment(comment: StoryComment): StoryComment[] {
+  addComment(comment: StoryComment, story?: Story): StoryComment[] {
     const list = this.getComments(comment.storyId);
     const updated = [comment, ...list];
     try {
@@ -297,7 +404,192 @@ export const StorageService = {
         });
       } catch {}
     }
+
+    // Dispatch real in-site notification to the author if commenter is not the author
+    if (story && story.userId && story.userId !== comment.userId) {
+      const preview = comment.text.length > 50 ? `${comment.text.slice(0, 50)}...` : comment.text;
+      this.createNotification({
+        recipientId: story.userId,
+        senderId: comment.userId,
+        senderName: comment.authorName || 'A Reader',
+        senderAvatar: comment.avatar,
+        type: 'comment',
+        storyId: story.id,
+        storyTitle: story.title,
+        chapterId: comment.chapterId,
+        message: `${comment.authorName} commented on ${comment.chapterTitle || 'your manuscript'}: "${preview}"`
+      }).catch(err => console.warn('[StorageService] Failed to dispatch comment notification:', err));
+    }
+
     return updated;
+  },
+
+  // --- In-Site Notifications ---
+  getLocalNotifications(userId: string): AppNotification[] {
+    try {
+      const stored = localStorage.getItem(`${STORAGE_KEYS.NOTIFICATIONS}_${userId}`);
+      if (!stored) return [];
+      return JSON.parse(stored);
+    } catch {
+      return [];
+    }
+  },
+
+  saveLocalNotifications(userId: string, notifs: AppNotification[]): void {
+    try {
+      localStorage.setItem(`${STORAGE_KEYS.NOTIFICATIONS}_${userId}`, JSON.stringify(notifs));
+    } catch (e) {
+      console.warn('[StorageService] Failed to save local notifications:', e);
+    }
+  },
+
+  async getNotifications(userId: string): Promise<AppNotification[]> {
+    if (!userId || userId === 'guest') {
+      return this.getLocalNotifications('guest');
+    }
+
+    const notifMap = new Map<string, AppNotification>();
+    const local = this.getLocalNotifications(userId);
+    local.forEach(n => notifMap.set(n.id, n));
+
+    if (db) {
+      try {
+        const notifQuery = query(
+          collection(db, 'notifications'),
+          where('recipientId', '==', userId)
+        );
+        const snap = await getDocs(notifQuery);
+        snap.forEach(d => {
+          notifMap.set(d.id, d.data() as AppNotification);
+        });
+      } catch (err: any) {
+        console.warn('[StorageService] Firestore getNotifications skipped or restricted:', err?.message || err);
+      }
+    }
+
+    const list = Array.from(notifMap.values()).sort((a, b) => b.createdAt - a.createdAt);
+    this.saveLocalNotifications(userId, list);
+    return list;
+  },
+
+  async createNotification(data: Omit<AppNotification, 'id' | 'createdAt' | 'read'>): Promise<AppNotification | null> {
+    // Avoid notifying oneself
+    if (data.senderId && data.recipientId && data.senderId === data.recipientId) {
+      return null;
+    }
+
+    const existing = this.getLocalNotifications(data.recipientId);
+
+    // Prevent spam / duplicate notifications within 10 minutes for identical action
+    const isDuplicate = existing.some(n => 
+      n.type === data.type &&
+      n.storyId === data.storyId &&
+      n.senderId === data.senderId &&
+      n.message === data.message &&
+      (Date.now() - n.createdAt) < 10 * 60 * 1000
+    );
+    if (isDuplicate) {
+      return null;
+    }
+
+    const newNotif: AppNotification = {
+      ...data,
+      id: `notif_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      read: false,
+      createdAt: Date.now()
+    };
+
+    const updated = [newNotif, ...existing.slice(0, 49)]; // Keep up to 50 notifications
+    this.saveLocalNotifications(data.recipientId, updated);
+
+    if (db) {
+      try {
+        await setDoc(doc(db, 'notifications', newNotif.id), newNotif);
+      } catch (err: any) {
+        console.warn('[StorageService] Firestore notification sync error:', err?.message || err);
+      }
+    }
+
+    // Trigger local dispatch event so open tabs/components re-render
+    try {
+      window.dispatchEvent(new CustomEvent('inokora_notifications_changed', { detail: { recipientId: data.recipientId } }));
+    } catch {}
+
+    return newNotif;
+  },
+
+  async markNotificationAsRead(id: string, userId: string): Promise<void> {
+    const list = this.getLocalNotifications(userId);
+    const updated = list.map(n => n.id === id ? { ...n, read: true } : n);
+    this.saveLocalNotifications(userId, updated);
+
+    if (db) {
+      try {
+        await setDoc(doc(db, 'notifications', id), { read: true }, { merge: true });
+      } catch (err: any) {
+        console.warn('[StorageService] Firestore markNotificationAsRead error:', err?.message || err);
+      }
+    }
+
+    try {
+      window.dispatchEvent(new CustomEvent('inokora_notifications_changed', { detail: { recipientId: userId } }));
+    } catch {}
+  },
+
+  async markAllNotificationsAsRead(userId: string): Promise<void> {
+    const list = this.getLocalNotifications(userId);
+    const updated = list.map(n => ({ ...n, read: true }));
+    this.saveLocalNotifications(userId, updated);
+
+    if (db) {
+      try {
+        for (const n of list.filter(item => !item.read)) {
+          setDoc(doc(db, 'notifications', n.id), { read: true }, { merge: true }).catch(() => {});
+        }
+      } catch (err: any) {
+        console.warn('[StorageService] Firestore markAllNotificationsAsRead error:', err?.message || err);
+      }
+    }
+
+    try {
+      window.dispatchEvent(new CustomEvent('inokora_notifications_changed', { detail: { recipientId: userId } }));
+    } catch {}
+  },
+
+  async deleteNotification(id: string, userId: string): Promise<void> {
+    const list = this.getLocalNotifications(userId).filter(n => n.id !== id);
+    this.saveLocalNotifications(userId, list);
+
+    if (db) {
+      try {
+        await deleteDoc(doc(db, 'notifications', id));
+      } catch (err: any) {
+        console.warn('[StorageService] Firestore deleteNotification error:', err?.message || err);
+      }
+    }
+
+    try {
+      window.dispatchEvent(new CustomEvent('inokora_notifications_changed', { detail: { recipientId: userId } }));
+    } catch {}
+  },
+
+  async clearAllNotifications(userId: string): Promise<void> {
+    const list = this.getLocalNotifications(userId);
+    this.saveLocalNotifications(userId, []);
+
+    if (db) {
+      try {
+        for (const n of list) {
+          deleteDoc(doc(db, 'notifications', n.id)).catch(() => {});
+        }
+      } catch (err: any) {
+        console.warn('[StorageService] Firestore clearAllNotifications error:', err?.message || err);
+      }
+    }
+
+    try {
+      window.dispatchEvent(new CustomEvent('inokora_notifications_changed', { detail: { recipientId: userId } }));
+    } catch {}
   },
 
   // --- Content Reporting ---
